@@ -516,6 +516,16 @@ export function buildDraftPrompt(
     "- `params`: array of `{ key, value }` entries matching the node's paramSchema, or empty array `[]` if none.",
     "",
     "IMPORTANT: If you cannot find a matching definitionId in the registry, do NOT emit create-node. Ask for clarification instead.",
+    "",
+    "## set-app-mode-field",
+    "REQUIRED fields (all MUST be non-null strings):",
+    "- `fieldKey`: the field key to set",
+    "- `fieldLabel`: human-readable label for the field",
+    "- `bindingNodeId`: the nodeId of the node to bind to (must exist in the graph)",
+    "- `bindingKey`: the param or port key on that node",
+    "- `bindingType`: either `\"param\"` or `\"unconnected-input-port\"`",
+    "",
+    "IMPORTANT: Only emit set-app-mode-field for nodes that already exist in the working graph.",
   ].join("\n");
 }
 
