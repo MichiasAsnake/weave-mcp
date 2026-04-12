@@ -61,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
         },
       },
       {
-        recursionLimit: 50,
+        recursionLimit: 200,
         configurable: {
           thread_id: randomUUID(),
         },

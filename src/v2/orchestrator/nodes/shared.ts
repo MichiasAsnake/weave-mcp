@@ -250,13 +250,14 @@ export async function generateStructuredOutput<T>(args: {
   system: string;
   prompt: string;
   tools?: ReturnType<typeof buildPlanningTools>;
+  maxSteps?: number;
 }): Promise<T> {
   const result = await generateObject({
     model: args.runtime.model,
     system: args.system,
     prompt: args.prompt,
     tools: args.tools,
-    stopWhen: stepCountIs(6),
+    stopWhen: stepCountIs(args.maxSteps ?? 2),
     schema: args.schema,
   });
 
@@ -709,6 +710,7 @@ export async function runIntentModel(
     system:
       "You are a workflow intent parser. Convert natural language requests into structured workflow-building intent. Never emit raw API payloads.",
     prompt: buildInterpretIntentPrompt(state),
+    maxSteps: 2,
   });
 }
 
@@ -723,6 +725,7 @@ export async function runPlanModel(
     system:
       "You are a graph planning model. Plan against the registry and App Mode constraints. Do not emit raw Weave payloads.",
     prompt: buildPlanPrompt(state, registry),
+    maxSteps: 2,
   });
 }
 
@@ -738,6 +741,7 @@ export async function runDraftModel(
       "You are a graph drafting model. Emit only valid atomic tool calls for the graph tool layer. Never mutate the graph directly.",
     prompt: buildDraftPrompt(state, registry),
     tools: buildPlanningTools(),
+    maxSteps: 4,
   });
   return {
     proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
@@ -756,6 +760,7 @@ export async function runRepairModel(
       "You are a repair router. Decide whether validation issues should be fixed with local tool calls, require replanning, or should fail.",
     prompt: buildRepairPrompt(state, registry),
     tools: buildPlanningTools(),
+    maxSteps: 4,
   });
   return {
     ...result,
@@ -774,6 +779,7 @@ export async function runReviewModel(
     system:
       "You are a semantic graph reviewer. Judge whether the current graph satisfies the user request. Do not discuss API payloads.",
     prompt: buildReviewPrompt(state, registry),
+    maxSteps: 2,
   });
 }
 
@@ -789,6 +795,7 @@ export async function runFinalizeRevisionModel(
       "You are a semantic revision planner. Emit only atomic tool calls that close the identified semantic gaps.",
     prompt: buildFinalizeRevisionPrompt(state, registry),
     tools: buildPlanningTools(),
+    maxSteps: 4,
   });
   return {
     proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
