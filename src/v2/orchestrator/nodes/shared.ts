@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { randomUUID } from "node:crypto";
 import { generateObject, stepCountIs, tool } from "ai";
+import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 
 import { createEmptyGraphIR } from "../../graph/builders.ts";
