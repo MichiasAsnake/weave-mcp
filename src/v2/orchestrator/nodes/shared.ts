@@ -605,23 +605,31 @@ export const RepairDecisionSchema = z.object({
 });
 
 export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>): OrchestratorToolCall {
+  const requireString = (value: string | null, fieldName: string, toolName: string): string => {
+    if (value && value.length > 0) {
+      return value;
+    }
+
+    throw new Error(`LLM emitted ${toolName} without required string field ${fieldName}.`);
+  };
+
   switch (toolCall.toolName) {
     case "create-node":
       return OrchestratorToolCallSchema.parse({
         toolName: "create-node",
         input: CreateNodeToolLLMInputSchema.parse({
-          definitionId: toolCall.input.definitionId,
-          nodeId: toolCall.input.nodeId,
-          displayName: toolCall.input.displayName,
-          params: toolCall.input.params,
+          definitionId: requireString(toolCall.input.definitionId, "definitionId", toolCall.toolName),
+          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName),
+          displayName: requireString(toolCall.input.displayName, "displayName", toolCall.toolName),
+          params: toolCall.input.params ?? [],
         }),
       });
     case "set-node-param":
       return OrchestratorToolCallSchema.parse({
         toolName: "set-node-param",
         input: SetNodeParamToolLLMInputSchema.parse({
-          nodeId: toolCall.input.nodeId,
-          paramKey: toolCall.input.paramKey,
+          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName),
+          paramKey: requireString(toolCall.input.paramKey, "paramKey", toolCall.toolName),
           value: toolCall.input.paramValue,
         }),
       });
@@ -629,32 +637,32 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
       return OrchestratorToolCallSchema.parse({
         toolName: "connect-ports",
         input: ConnectPortsToolInputSchema.parse({
-          edgeId: toolCall.input.edgeId,
-          fromNodeId: toolCall.input.fromNodeId,
-          fromPortKey: toolCall.input.fromPortKey,
-          toNodeId: toolCall.input.toNodeId,
-          toPortKey: toolCall.input.toPortKey,
+          edgeId: requireString(toolCall.input.edgeId, "edgeId", toolCall.toolName),
+          fromNodeId: requireString(toolCall.input.fromNodeId, "fromNodeId", toolCall.toolName),
+          fromPortKey: requireString(toolCall.input.fromPortKey, "fromPortKey", toolCall.toolName),
+          toNodeId: requireString(toolCall.input.toNodeId, "toNodeId", toolCall.toolName),
+          toPortKey: requireString(toolCall.input.toPortKey, "toPortKey", toolCall.toolName),
         }),
       });
     case "disconnect-edge":
       return OrchestratorToolCallSchema.parse({
         toolName: "disconnect-edge",
         input: DisconnectEdgeToolInputSchema.parse({
-          edgeId: toolCall.input.edgeId,
+          edgeId: requireString(toolCall.input.edgeId, "edgeId", toolCall.toolName),
         }),
       });
     case "remove-node":
       return OrchestratorToolCallSchema.parse({
         toolName: "remove-node",
         input: RemoveNodeToolInputSchema.parse({
-          nodeId: toolCall.input.nodeId,
+          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName),
         }),
       });
     case "set-outputs":
       return OrchestratorToolCallSchema.parse({
         toolName: "set-outputs",
         input: SetOutputsToolInputSchema.parse({
-          nodeIds: toolCall.input.nodeIds,
+          nodeIds: toolCall.input.nodeIds ?? [],
         }),
       });
     case "set-app-mode-field":
@@ -662,13 +670,13 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
         toolName: "set-app-mode-field",
         input: SetAppModeFieldToolLLMInputSchema.parse({
           field: {
-            key: toolCall.input.fieldKey,
+            key: requireString(toolCall.input.fieldKey, "fieldKey", toolCall.toolName),
             source: {
-              nodeId: toolCall.input.bindingNodeId,
-              bindingKey: toolCall.input.bindingKey,
-              bindingType: toolCall.input.bindingType,
+              nodeId: requireString(toolCall.input.bindingNodeId, "bindingNodeId", toolCall.toolName),
+              bindingKey: requireString(toolCall.input.bindingKey, "bindingKey", toolCall.toolName),
+              bindingType: toolCall.input.bindingType ?? "param",
             },
-            label: toolCall.input.fieldLabel,
+            label: requireString(toolCall.input.fieldLabel, "fieldLabel", toolCall.toolName),
             control: "text",
             required: false,
             locked: false,
