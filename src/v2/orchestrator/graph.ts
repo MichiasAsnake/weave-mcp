@@ -53,54 +53,44 @@ export async function createOrchestratorGraph(
 
   const builder: any = new StateGraph(OrchestratorAnnotation);
 
-  builder.addNode("receive_request", async (annotatedState) => ({
-    data: await receiveRequestNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("load_session", async (annotatedState) => ({
-    data: await loadSessionNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("load_registry", async (annotatedState) => ({
-    data: await loadRegistryNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("interpret_request", async (annotatedState) => ({
-    data: await interpretRequestNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("retrieve_context", async (annotatedState) => ({
-    data: await retrieveContextNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("plan_graph", async (annotatedState) => ({
-    data: await planGraphNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("draft_graph", async (annotatedState) => ({
-    data: await draftGraphNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("validate_graph", async (annotatedState) => ({
-    data: await validateGraphNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("decide_repair", async (annotatedState) => ({
-    data: await decideRepairNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("apply_tool_step", async (annotatedState) => ({
-    data: await applyToolStepNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("revalidate_graph", async (annotatedState) => ({
-    data: await revalidateGraphNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("review_graph", async (annotatedState) => ({
-    data: await reviewGraphNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("decide_finalize", async (annotatedState) => ({
-    data: await decideFinalizeNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("finalize_result", async (annotatedState) => ({
-    data: await finalizeResultNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("complete", async (annotatedState) => ({
-    data: await completeNode(annotatedState.data, runtime),
-  }));
-  builder.addNode("fail", async (annotatedState) => ({
-    data: await failNode(annotatedState.data, runtime),
-  }));
+  const addTracedNode = (
+    name: string,
+    fn: (state: OrchestratorState, runtime: OrchestratorRuntime) => Promise<OrchestratorState>,
+  ) => {
+    builder.addNode(name, async (annotatedState) => {
+      const startedAt = Date.now();
+      runtime.breadcrumbs?.push(`[${startedAt}] enter ${name}`);
+      try {
+        const data = await fn(annotatedState.data, runtime);
+        runtime.breadcrumbs?.push(`[${Date.now()}] exit ${name} (+${Date.now() - startedAt}ms)`);
+        return { data };
+      } catch (error) {
+        runtime.breadcrumbs?.push(
+          `[${Date.now()}] throw ${name} (+${Date.now() - startedAt}ms): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        throw error;
+      }
+    });
+  };
+
+  addTracedNode("receive_request", receiveRequestNode);
+  addTracedNode("load_session", loadSessionNode);
+  addTracedNode("load_registry", loadRegistryNode);
+  addTracedNode("interpret_request", interpretRequestNode);
+  addTracedNode("retrieve_context", retrieveContextNode);
+  addTracedNode("plan_graph", planGraphNode);
+  addTracedNode("draft_graph", draftGraphNode);
+  addTracedNode("validate_graph", validateGraphNode);
+  addTracedNode("decide_repair", decideRepairNode);
+  addTracedNode("apply_tool_step", applyToolStepNode);
+  addTracedNode("revalidate_graph", revalidateGraphNode);
+  addTracedNode("review_graph", reviewGraphNode);
+  addTracedNode("decide_finalize", decideFinalizeNode);
+  addTracedNode("finalize_result", finalizeResultNode);
+  addTracedNode("complete", completeNode);
+  addTracedNode("fail", failNode);
 
   builder.addEdge(START, "receive_request");
   builder.addEdge("receive_request", "load_session");

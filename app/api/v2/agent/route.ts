@@ -31,8 +31,10 @@ export async function POST(request: Request): Promise<Response> {
       process.env.ORCHESTRATOR_MODEL ||
       process.env.OPENAI_MODEL ||
       "gpt-4o";
+    const breadcrumbs: string[] = [];
     const { graph } = await createOrchestratorGraph({
       model: openai(modelName),
+      breadcrumbs,
     });
     const runnableGraph = graph as {
       invoke: (
@@ -53,7 +55,17 @@ export async function POST(request: Request): Promise<Response> {
     };
 
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("orchestrator timeout after 90s")), 90000),
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `orchestrator timeout after 90s. breadcrumbs: ${
+                breadcrumbs.length > 0 ? breadcrumbs.join(" -> ") : "(none)"
+              }`,
+            ),
+          ),
+        90000,
+      ),
     );
     const result = await Promise.race([
       runnableGraph.invoke(

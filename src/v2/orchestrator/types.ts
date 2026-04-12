@@ -308,6 +308,7 @@ export interface OrchestratorRuntime {
   retrieveTemplateCandidates?: (
     state: OrchestratorState,
   ) => Promise<TemplateCandidate[]>;
+  breadcrumbs?: string[];
 }
 
 export interface OrchestratorGraphBundle {
