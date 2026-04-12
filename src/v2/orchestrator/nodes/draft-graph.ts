@@ -14,14 +14,19 @@ export async function draftGraphNode(
 
   const workingGraph = createGraphIfMissing(state, runtime);
   console.log("[node]", "draft_graph llm call start");
-  const draft = await runDraftModel(
-    {
-      ...state,
-      workingGraph,
-    },
-    state.registrySnapshot,
-    runtime,
-  );
+  const draft = await Promise.race([
+    runDraftModel(
+      {
+        ...state,
+        workingGraph,
+      },
+      state.registrySnapshot,
+      runtime,
+    ),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("draft_graph LLM call timeout after 60s")), 60000),
+    ),
+  ]);
   console.log("[node]", "draft_graph llm call complete");
 
   const nextState = OrchestratorStateSchema.parse({
