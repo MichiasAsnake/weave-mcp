@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { openai } from "@ai-sdk/openai";
 
@@ -30,8 +31,6 @@ export async function POST(request: Request): Promise<Response> {
       process.env.ORCHESTRATOR_MODEL ||
       process.env.OPENAI_MODEL ||
       "gpt-4o";
-    const threadId = body.sessionId || `api-v2-agent-${Date.now()}`;
-
     const { graph } = await createOrchestratorGraph({
       model: openai(modelName),
     });
@@ -60,7 +59,7 @@ export async function POST(request: Request): Promise<Response> {
       {
         recursionLimit: 50,
         configurable: {
-          thread_id: threadId,
+          thread_id: randomUUID(),
         },
       },
     );
