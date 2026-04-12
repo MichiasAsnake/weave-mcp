@@ -493,6 +493,8 @@ export function buildDraftPrompt(
   state: OrchestratorState,
   registry: NormalizedRegistrySnapshot,
 ): string {
+  const registrySummary = JSON.stringify(summarizeRegistryForLLM(registry), null, 2);
+
   return [
     `User request: ${state.userRequest}`,
     "",
@@ -500,12 +502,20 @@ export function buildDraftPrompt(
     "",
     `Working graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
     "",
+    "## Available Node Definitions (copy definitionId exactly):",
+    "```json",
+    registrySummary,
+    "```",
+    "",
     "Draft the next atomic tool calls needed to move the graph toward completion.",
     "Only propose tool calls that can be executed by the atomic tool layer.",
-    "For `create-node`, always include:",
-    "- `definitionId`: one of the definitionIds shown in the registry summary",
-    "- `displayName`: the node display name from the registry summary",
-    "- `params`: an array of `{ key, value }` entries, or an empty array if the node has no params",
+    "## create-node",
+    "REQUIRED fields (all three MUST be non-null strings):",
+    "- `definitionId`: MUST be one of the exact definitionId strings from the registry summary below. Copy it exactly.",
+    "- `displayName`: MUST be the exact displayName from the registry summary for that definitionId.",
+    "- `params`: array of `{ key, value }` entries matching the node's paramSchema, or empty array `[]` if none.",
+    "",
+    "IMPORTANT: If you cannot find a matching definitionId in the registry, do NOT emit create-node. Ask for clarification instead.",
   ].join("\n");
 }
 
@@ -698,7 +708,10 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
 export function normalizeLLMToolCalls(
   toolCalls: Array<z.infer<typeof LLMToolCallSchema>>,
 ): OrchestratorToolCall[] {
-  return toolCalls.map((toolCall) => normalizeLLMToolCall(toolCall));
+  return toolCalls.map((toolCall) => {
+    console.log(`[debug] ${toolCall.toolName} raw input:`, JSON.stringify(toolCall.input));
+    return normalizeLLMToolCall(toolCall);
+  });
 }
 
 export async function runIntentModel(
