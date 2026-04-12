@@ -152,81 +152,78 @@ export async function createOrchestratorGraph(
 
 function routeAfterValidateGraph(annotatedState): "review_graph" | "decide_repair" {
   const state = annotatedState.data;
-  console.log("[route]", "validate_graph", {
+  const decision = state.validationResult?.ok ? "review_graph" : "decide_repair";
+  console.log("[route]", "validate_graph ->", decision, {
     ok: state.validationResult?.ok ?? false,
     errors: state.validationResult?.errorCount ?? null,
     warnings: state.validationResult?.warningCount ?? null,
   });
-  return state.validationResult?.ok ? "review_graph" : "decide_repair";
+  return decision;
 }
 
 function routeAfterDecideRepair(
   annotatedState,
 ): "apply_tool_step" | "plan_graph" | "fail" {
   const state = annotatedState.data;
-  console.log("[route]", "decide_repair", {
+  let decision: "apply_tool_step" | "plan_graph" | "fail";
+  if (state.status === "repair_local") {
+    decision = "apply_tool_step";
+  } else if (state.status === "repair_replan") {
+    decision = "plan_graph";
+  } else {
+    decision = "fail";
+  }
+  console.log("[route]", "decide_repair ->", decision, {
     status: state.status,
     revisionCount: state.revisionCount,
     maxRevisionCount: state.maxRevisionCount,
     proposedToolCalls: state.proposedToolCalls.length,
   });
-  if (state.status === "repair_local") {
-    return "apply_tool_step";
-  }
-
-  if (state.status === "repair_replan") {
-    return "plan_graph";
-  }
-
-  return "fail";
+  return decision;
 }
 
 function routeAfterRevalidateGraph(
   annotatedState,
 ): "review_graph" | "decide_repair" | "plan_graph" | "fail" {
   const state = annotatedState.data;
-  console.log("[route]", "revalidate_graph", {
+  let decision: "review_graph" | "decide_repair" | "plan_graph" | "fail";
+  if (state.validationResult?.ok) {
+    decision = "review_graph";
+  } else if (state.revisionCount >= state.maxRevisionCount) {
+    decision = "fail";
+  } else if (hasNoProgressAfterTwoCycles(state.graphHistory)) {
+    decision = "plan_graph";
+  } else {
+    decision = "decide_repair";
+  }
+  console.log("[route]", "revalidate_graph ->", decision, {
     ok: state.validationResult?.ok ?? false,
     revisionCount: state.revisionCount,
     maxRevisionCount: state.maxRevisionCount,
     graphHistory: state.graphHistory.length,
   });
-  if (state.validationResult?.ok) {
-    return "review_graph";
-  }
-
-  if (state.revisionCount >= state.maxRevisionCount) {
-    return "fail";
-  }
-
-  if (hasNoProgressAfterTwoCycles(state.graphHistory)) {
-    return "plan_graph";
-  }
-
-  return "decide_repair";
+  return decision;
 }
 
 function routeAfterDecideFinalize(
   annotatedState,
 ): "finalize_result" | "apply_tool_step" | "plan_graph" | "fail" {
   const state = annotatedState.data;
-  console.log("[route]", "decide_finalize", {
+  let decision: "finalize_result" | "apply_tool_step" | "plan_graph" | "fail";
+  if (state.status === "finalize" || state.status === "complete") {
+    decision = "finalize_result";
+  } else if (state.status === "revise") {
+    decision = "apply_tool_step";
+  } else if (state.status === "replan") {
+    decision = "plan_graph";
+  } else {
+    decision = "fail";
+  }
+  console.log("[route]", "decide_finalize ->", decision, {
     status: state.status,
     hasReviewResult: Boolean(state.reviewResult),
     revisionCount: state.revisionCount,
     maxRevisionCount: state.maxRevisionCount,
   });
-  if (state.status === "finalize" || state.status === "complete") {
-    return "finalize_result";
-  }
-
-  if (state.status === "revise") {
-    return "apply_tool_step";
-  }
-
-  if (state.status === "replan") {
-    return "plan_graph";
-  }
-
-  return "fail";
+  return decision;
 }
