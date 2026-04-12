@@ -563,15 +563,23 @@ export const LLMToolNameSchema = z.enum([
   "set-app-mode-field",
 ]);
 
+const LLMToolValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.string()),
+]);
+
 export const LLMToolCallSchema = z.object({
   toolName: LLMToolNameSchema,
   input: z.object({
     nodeId: z.string().nullable(),
     definitionId: z.string().nullable(),
     displayName: z.string().nullable(),
-    params: z.array(z.object({ key: z.string(), value: z.unknown() })).nullable(),
+    params: z.array(z.object({ key: z.string(), value: LLMToolValueSchema })).nullable(),
     paramKey: z.string().nullable(),
-    paramValue: z.unknown().nullable(),
+    paramValue: LLMToolValueSchema.nullable(),
     fromNodeId: z.string().nullable(),
     fromPortKey: z.string().nullable(),
     toNodeId: z.string().nullable(),
