@@ -52,21 +52,27 @@ export async function POST(request: Request): Promise<Response> {
       ) => Promise<{ data: OrchestratorState }>;
     };
 
-    const result = await runnableGraph.invoke(
-      {
-        data: {
-          userRequest: body.userRequest,
-          sessionId: body.sessionId,
-          maxRevisionCount: 3,
-        },
-      },
-      {
-        recursionLimit: 200,
-        configurable: {
-          thread_id: randomUUID(),
-        },
-      },
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("orchestrator timeout after 90s")), 90000),
     );
+    const result = await Promise.race([
+      runnableGraph.invoke(
+        {
+          data: {
+            userRequest: body.userRequest,
+            sessionId: body.sessionId,
+            maxRevisionCount: 3,
+          },
+        },
+        {
+          recursionLimit: 200,
+          configurable: {
+            thread_id: randomUUID(),
+          },
+        },
+      ),
+      timeoutPromise,
+    ]) as { data: OrchestratorState };
     const finalState = result.data;
 
     console.log("[agent] orchestrator complete", finalState.status);

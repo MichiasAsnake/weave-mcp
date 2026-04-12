@@ -7,11 +7,13 @@ export async function draftGraphNode(
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
   console.log("[node]", "draft_graph");
+  console.log("[node]", "draft_graph start");
   if (!state.registrySnapshot) {
     throw new Error("draft_graph requires registrySnapshot to be loaded.");
   }
 
   const workingGraph = createGraphIfMissing(state, runtime);
+  console.log("[node]", "draft_graph llm call start");
   const draft = await runDraftModel(
     {
       ...state,
@@ -20,6 +22,7 @@ export async function draftGraphNode(
     state.registrySnapshot,
     runtime,
   );
+  console.log("[node]", "draft_graph llm call complete");
 
   const nextState = OrchestratorStateSchema.parse({
     ...state,

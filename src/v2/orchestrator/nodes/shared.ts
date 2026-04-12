@@ -735,7 +735,10 @@ export async function runDraftModel(
   runtime: OrchestratorRuntime,
 ): Promise<z.infer<typeof DraftToolCallsSchema>> {
   const result = await generateStructuredOutput({
-    runtime,
+    runtime: {
+      ...runtime,
+      model: openai("gpt-4o-mini"),
+    },
     schema: DraftToolCallsSchema,
     system:
       "You are a graph drafting model. Emit only valid atomic tool calls for the graph tool layer. Never mutate the graph directly.",
