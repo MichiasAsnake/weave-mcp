@@ -9,6 +9,21 @@ import type {
 } from "../orchestrator/types.ts";
 import type { ValidationResult } from "../validate/types.ts";
 
+function sanitizeStateForPersistence<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeStateForPersistence(item)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "registrySnapshot" && key !== "graphHistory")
+      .map(([key, item]) => [key, sanitizeStateForPersistence(item)]);
+    return Object.fromEntries(entries) as T;
+  }
+
+  return value;
+}
+
 export interface PersistedOrchestratorSession {
   sessionId: string;
   requestId: string;
@@ -85,6 +100,8 @@ export async function upsertOrchestratorSession(
   pool: Pool,
   state: OrchestratorState,
 ): Promise<void> {
+  const stateToStore = sanitizeStateForPersistence(state);
+
   await pool.query(
     `
       insert into v2_agent_sessions (
@@ -133,7 +150,7 @@ export async function upsertOrchestratorSession(
       state.requestMode ?? null,
       state.registryVersion ?? null,
       state.userRequest,
-      JSON.stringify(state),
+      JSON.stringify(stateToStore),
       state.currentGraph ? JSON.stringify(state.currentGraph) : null,
       state.validationResult ? JSON.stringify(state.validationResult) : null,
       state.reviewResult ? JSON.stringify(state.reviewResult) : null,

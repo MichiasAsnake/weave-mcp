@@ -40,6 +40,21 @@ function bufferToUint8Array(value: Buffer): Uint8Array {
   return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 }
 
+function sanitizeCheckpointValue<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeCheckpointValue(item)) as T;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "registrySnapshot" && key !== "graphHistory")
+      .map(([key, item]) => [key, sanitizeCheckpointValue(item)]);
+    return Object.fromEntries(entries) as T;
+  }
+
+  return value;
+}
+
 export class PostgresCheckpointSaver extends BaseCheckpointSaver {
   constructor(private readonly pool: Pool) {
     super();
@@ -295,6 +310,7 @@ export class PostgresCheckpointSaver extends BaseCheckpointSaver {
     _newVersions: ChannelVersions,
   ): Promise<RunnableConfig> {
     const preparedCheckpoint = copyCheckpoint(checkpoint);
+    preparedCheckpoint.channel_values = sanitizeCheckpointValue(preparedCheckpoint.channel_values ?? {});
     const threadId = threadIdFromConfig(config);
     const checkpointNamespace = checkpointNamespaceFromConfig(config);
     const parentCheckpointId = config.configurable?.checkpoint_id
@@ -355,7 +371,7 @@ export class PostgresCheckpointSaver extends BaseCheckpointSaver {
 
     await Promise.all(
       writes.map(async ([channel, value], index) => {
-        const [valueType, valueBlob] = await this.serde.dumpsTyped(value);
+        const [valueType, valueBlob] = await this.serde.dumpsTyped(sanitizeCheckpointValue(value));
         const writeIndex = WRITES_IDX_MAP[channel] ?? index;
 
         await this.pool.query(
