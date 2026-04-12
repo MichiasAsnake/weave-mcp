@@ -703,7 +703,7 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
         toolName: "set-app-mode-field",
         input: SetAppModeFieldToolLLMInputSchema.parse({
           field: {
-            key: requireString(toolCall.input.fieldKey, "fieldKey", toolCall.toolName),
+            key: requireString(toolCall.input.fieldKey, "fieldKey", toolCall.toolName, toolCall.input),
             source: {
               nodeId: requireString(toolCall.input.bindingNodeId, "bindingNodeId", toolCall.toolName, toolCall.input),
               bindingKey: requireString(toolCall.input.bindingKey, "bindingKey", toolCall.toolName, toolCall.input),
