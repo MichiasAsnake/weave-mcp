@@ -6,6 +6,7 @@ export async function completeNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "complete");
   const nextState = OrchestratorStateSchema.parse({
     ...state,
     status: "complete",

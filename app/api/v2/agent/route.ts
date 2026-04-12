@@ -15,6 +15,8 @@ const RequestBodySchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    console.log("[agent] starting orchestrator turn");
+
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL is not configured.");
     }
@@ -60,6 +62,8 @@ export async function POST(request: Request): Promise<Response> {
       },
     );
 
+    console.log("[agent] orchestrator complete", finalState.status);
+
     return Response.json({
       ok: true,
       data: {
@@ -74,6 +78,7 @@ export async function POST(request: Request): Promise<Response> {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack || "" : "";
     const failedAtMatch = stack.match(/src\/v2\/orchestrator\/nodes\/([a-z-]+)\.ts/);
+    console.log("[agent] orchestrator failed", failedAtMatch ? failedAtMatch[1] : null, message);
 
     return Response.json(
       {

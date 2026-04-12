@@ -6,6 +6,7 @@ export async function interpretRequestNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "interpret_request");
   const interpretedIntent = await runIntentModel(state, runtime);
   const normalizedSelectedTemplateId = interpretedIntent.targetTemplateId ?? undefined;
 

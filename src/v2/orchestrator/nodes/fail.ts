@@ -6,6 +6,7 @@ export async function failNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "fail");
   const nextState = OrchestratorStateSchema.parse({
     ...state,
     status: "failed",

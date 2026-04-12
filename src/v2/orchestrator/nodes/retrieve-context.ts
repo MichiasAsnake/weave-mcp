@@ -11,6 +11,7 @@ export async function retrieveContextNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "retrieve_context");
   const templateCandidates = await getTemplateCandidates(runtime, state);
   const selectedTemplateId =
     state.selectedTemplateId ||

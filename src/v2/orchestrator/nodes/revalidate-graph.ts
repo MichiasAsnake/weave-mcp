@@ -13,6 +13,7 @@ export async function revalidateGraphNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "revalidate_graph");
   const validationResult = validateCurrentGraph(state);
   if (!state.workingGraph) {
     throw new Error("revalidate_graph requires a working graph.");

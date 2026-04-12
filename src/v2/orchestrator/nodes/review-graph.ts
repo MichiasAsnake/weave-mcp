@@ -6,6 +6,7 @@ export async function reviewGraphNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "review_graph");
   if (!state.registrySnapshot) {
     throw new Error("review_graph requires registrySnapshot to be loaded.");
   }

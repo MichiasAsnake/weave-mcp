@@ -6,6 +6,7 @@ export async function planGraphNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "plan_graph");
   if (!state.registrySnapshot) {
     throw new Error("plan_graph requires registrySnapshot to be loaded.");
   }

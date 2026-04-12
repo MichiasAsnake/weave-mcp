@@ -13,6 +13,7 @@ export async function receiveRequestNode(
   rawState: OrchestratorInput | OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "receive_request");
   const parsedInput = OrchestratorInputSchema.safeParse(rawState);
   const baseState = parsedInput.success
     ? createEmptyOrchestratorState(parsedInput.data)

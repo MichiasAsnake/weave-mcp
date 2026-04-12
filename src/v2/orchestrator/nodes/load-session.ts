@@ -6,6 +6,7 @@ export async function loadSessionNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "load_session");
   const persisted = await loadPersistedState(runtime, state.sessionId);
   const mergedState = persisted
     ? {

@@ -6,6 +6,7 @@ export async function loadRegistryNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "load_registry");
   const registrySnapshot = await loadRegistrySnapshot(runtime);
 
   const nextState = OrchestratorStateSchema.parse({

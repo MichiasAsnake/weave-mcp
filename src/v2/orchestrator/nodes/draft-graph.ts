@@ -6,6 +6,7 @@ export async function draftGraphNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "draft_graph");
   if (!state.registrySnapshot) {
     throw new Error("draft_graph requires registrySnapshot to be loaded.");
   }

@@ -13,6 +13,7 @@ export async function validateGraphNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "validate_graph");
   const validationResult = validateCurrentGraph(state);
   const workingGraph = state.workingGraph;
   if (!workingGraph) {

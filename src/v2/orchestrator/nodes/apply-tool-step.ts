@@ -13,6 +13,7 @@ export async function applyToolStepNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "apply_tool_step");
   if (!state.registrySnapshot) {
     throw new Error("apply_tool_step requires registrySnapshot to be loaded.");
   }

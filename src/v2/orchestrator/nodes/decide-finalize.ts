@@ -6,6 +6,7 @@ export async function decideFinalizeNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "decide_finalize");
   if (!state.reviewResult) {
     const failedState = OrchestratorStateSchema.parse({
       ...state,

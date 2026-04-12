@@ -6,6 +6,7 @@ export async function decideRepairNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "decide_repair");
   if (!state.validationResult || state.validationResult.ok) {
     return OrchestratorStateSchema.parse({
       ...state,

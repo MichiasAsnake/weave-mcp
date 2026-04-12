@@ -6,6 +6,7 @@ export async function finalizeResultNode(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
 ): Promise<OrchestratorState> {
+  console.log("[node]", "finalize_result");
   if (!state.workingGraph) {
     throw new Error("finalize_result requires a working graph.");
   }
