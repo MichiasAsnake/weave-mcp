@@ -5,6 +5,7 @@ import { NodeParamSchemasByDefinitionId } from "../generated/node-schemas.ts";
 import type { GraphIR } from "../graph/types.ts";
 import type { RegistrySnapshot, ToolResult } from "./types.ts";
 import {
+  SetNodeParamToolLLMInputSchema,
   SetNodeParamToolInputSchema,
   finalizeToolMutation,
   getGraphNodeById,
@@ -14,13 +15,19 @@ import {
 } from "./types.ts";
 
 export type SetNodeParamToolInput = z.infer<typeof SetNodeParamToolInputSchema>;
+export type SetNodeParamToolLLMInput = z.infer<typeof SetNodeParamToolLLMInputSchema>;
+
+const SetNodeParamToolAnyInputSchema = z.union([
+  SetNodeParamToolInputSchema,
+  SetNodeParamToolLLMInputSchema,
+]);
 
 export function setNodeParamTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
-  rawInput: SetNodeParamToolInput,
+  rawInput: SetNodeParamToolInput | SetNodeParamToolLLMInput,
 ): ToolResult {
-  const input = SetNodeParamToolInputSchema.parse(rawInput);
+  const input = SetNodeParamToolAnyInputSchema.parse(rawInput);
   const targetNode = getGraphNodeById(graph, input.nodeId);
 
   if (!targetNode) {

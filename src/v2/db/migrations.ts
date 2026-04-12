@@ -1,4 +1,8 @@
 import type { Pool, PoolClient } from "pg";
+import fs from "node:fs";
+import path from "node:path";
+
+import { createPostgresPool } from "./connection.ts";
 
 export const V2_ORCHESTRATOR_MIGRATIONS: string[] = [
   `
@@ -97,4 +101,80 @@ export async function runV2OrchestratorMigrations(
       client.release();
     }
   }
+}
+
+function loadDotEnvLocalIfPresent(): void {
+  const envPath = path.resolve(process.cwd(), ".env.local");
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  const content = fs.readFileSync(envPath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (process.env[key] !== undefined) {
+      continue;
+    }
+
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
+}
+
+async function main(): Promise<void> {
+  loadDotEnvLocalIfPresent();
+
+  const pool = createPostgresPool();
+  try {
+    await runV2OrchestratorMigrations(pool);
+
+    const tables = await pool.query<{
+      table_name: string;
+    }>(
+      `
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public'
+          and table_name in (
+            'v2_agent_sessions',
+            'v2_graph_revisions',
+            'v2_langgraph_checkpoints',
+            'v2_langgraph_checkpoint_writes'
+          )
+        order by table_name asc
+      `,
+    );
+
+    console.log("[v2-db-migrations] ok");
+    console.log(
+      `[v2-db-migrations] tables=${tables.rows.map((row) => row.table_name).join(",")}`,
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error("[v2-db-migrations] failed");
+    console.error(error instanceof Error ? error.stack || error.message : String(error));
+    process.exit(1);
+  });
 }

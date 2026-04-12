@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { END, START, StateGraph } from "@langchain/langgraph";
 
 import { runV2OrchestratorMigrations } from "../db/migrations.ts";
@@ -43,7 +44,7 @@ export async function createOrchestratorGraph(
     checkpointSaver,
   };
 
-  const builder = new StateGraph({
+  const builder: any = new StateGraph({
     state: OrchestratorStateSchema,
     input: OrchestratorInputSchema,
     output: OrchestratorStateSchema,

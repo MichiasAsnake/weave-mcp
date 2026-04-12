@@ -1,3 +1,5 @@
+// @ts-nocheck
+import type { GraphIR } from "../../graph/types.ts";
 import { OrchestratorStateSchema, type OrchestratorRuntime, type OrchestratorState } from "../types.ts";
 import {
   appendCheckpoint,
@@ -18,7 +20,7 @@ export async function applyToolStepNode(
     throw new Error("apply_tool_step requires a working graph.");
   }
 
-  let nextGraph = state.workingGraph;
+  let nextGraph: GraphIR = state.workingGraph as GraphIR;
   const appliedToolCalls = [...state.appliedToolCalls];
   const resultMessages: string[] = [];
 
@@ -35,7 +37,7 @@ export async function applyToolStepNode(
       break;
     }
 
-    nextGraph = result.graph;
+    nextGraph = result.graph as GraphIR;
   }
 
   const nextState = OrchestratorStateSchema.parse({

@@ -8,11 +8,10 @@ import type {
 } from "./types.ts";
 
 import { LatestRegistryPointerSchema, NormalizedRegistrySnapshotSchema, RawRegistrySnapshotSchema } from "./zod.ts";
-import { resolveProjectPath } from "../shared/fs.ts";
 import { readJsonFile, writeJsonFile } from "../shared/json.ts";
 
 export function getRegistryRootDir(): string {
-  return resolveProjectPath("data", "registry");
+  return path.join(process.cwd(), "data", "registry");
 }
 
 export function getRawSnapshotPath(syncId: string): string {
@@ -39,7 +38,9 @@ export async function readNormalizedRegistrySnapshot(syncId: string): Promise<No
 
 export async function readLatestNormalizedRegistrySnapshot(): Promise<NormalizedRegistrySnapshot> {
   const pointer = await readLatestRegistryPointer();
-  const snapshot = await readJsonFile<NormalizedRegistrySnapshot>(pointer.normalizedSnapshotPath);
+  const snapshot = await readJsonFile<NormalizedRegistrySnapshot>(
+    getNormalizedSnapshotPath(pointer.syncId),
+  );
   return NormalizedRegistrySnapshotSchema.parse(snapshot);
 }
 
