@@ -6,7 +6,7 @@ import type { OrchestratorState } from "../../../../src/v2/orchestrator/types.ts
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const RequestBodySchema = z.object({
   userRequest: z.string().min(1),
