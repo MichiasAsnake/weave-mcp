@@ -1,0 +1,8 @@
+node_modules
+.next
+.data
+src/local.env
+local.env
+.env
+.vercel
+.env*.local

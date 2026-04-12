@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weavy Agent Workbench Preview</title>
+    <link rel="stylesheet" href="/preview.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Local Preview</p>
+        <h1>Describe the workflow app you want in one box.</h1>
+        <p class="lede">
+          This preview uses the same deterministic agent backend, but skips the Next
+          runtime so you can work locally right now.
+        </p>
+      </section>
+
+      <section class="panel chat-shell">
+        <div class="context-strip">
+          <article class="context-card">
+            <span>Workflow goal</span>
+            <strong id="goal-state">Your first prompt becomes the working goal.</strong>
+          </article>
+          <article class="context-card">
+            <span>Reference</span>
+            <strong id="reference-state">Optional</strong>
+          </article>
+          <article class="context-card">
+            <span>Auth</span>
+            <strong id="auth-state">Checking…</strong>
+          </article>
+        </div>
+
+        <section id="thread" class="chat-scroll chat-scroll-roomy">
+          <div class="chat-empty chat-empty-large">
+            <p class="chat-empty-title">Start with one sentence.</p>
+            <p>
+              Example: “Build me a workflow app where I upload a reference ad and my
+              own product shots, then generate matching creative.”
+            </p>
+            <div class="suggestion-row">
+              <button class="suggestion-chip" type="button">Build me a workflow app where I upload a reference ad and generate my own versions.</button>
+              <button class="suggestion-chip" type="button">Create a reusable product-shot workflow app with a reference image and styled outputs.</button>
+              <button class="suggestion-chip" type="button">Set up a workflow app for UGC-style creative generation with editable brand controls.</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="latest-summary" class="latest-summary" hidden>
+          <div>
+            <span>Latest agent move</span>
+            <strong id="latest-title"></strong>
+          </div>
+          <p id="latest-description"></p>
+        </section>
+
+        <form id="composer" class="chat-form chat-form-large">
+          <textarea
+            id="message"
+            rows="4"
+            placeholder="Ask the agent to create or evolve a workflow app..."
+          ></textarea>
+
+          <div class="advanced-inline">
+            <label class="inline-field">
+              <span>Reference URL</span>
+              <input id="reference" placeholder="https://..." />
+            </label>
+          </div>
+
+          <div class="composer-toolbar">
+            <button class="action action-primary" type="submit">Send</button>
+          </div>
+
+          <details class="advanced-panel">
+            <summary>Advanced settings</summary>
+            <div class="advanced-grid">
+              <label class="field">
+                <span>Pinned workflow goal</span>
+                <textarea
+                  id="goal"
+                  rows="4"
+                  placeholder="Optional. Leave empty and the first prompt becomes the goal."
+                ></textarea>
+              </label>
+
+              <label class="field">
+                <span>Template</span>
+                <select id="template">
+                  <option value="multi-views">Multi views</option>
+                  <option value="design-app">Design App Example</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Extra inputs</span>
+                <textarea
+                  id="inputs"
+                  rows="4"
+                  placeholder="Clothing=white running shoe campaign&#10;Style=clean editorial minimalism"
+                ></textarea>
+              </label>
+            </div>
+          </details>
+
+          <p id="status" class="chat-status">Ready</p>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="/preview.js"></script>
+  </body>
+</html>

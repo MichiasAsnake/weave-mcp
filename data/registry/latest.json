@@ -1,0 +1,11 @@
+{
+  "syncId": "2026-04-12T15-18-10-043Z",
+  "fetchedAt": "2026-04-12T15:18:10.043Z",
+  "registryVersion": "0.1.0",
+  "apiBaseUrl": "https://api.weavy.ai/api",
+  "authSource": "env",
+  "rawSnapshotPath": "/Users/purplesprite/Desktop/workflow/data/registry/raw/2026-04-12T15-18-10-043Z.json",
+  "normalizedSnapshotPath": "/Users/purplesprite/Desktop/workflow/data/registry/normalized/2026-04-12T15-18-10-043Z.json",
+  "nodeSpecCount": 323,
+  "warningCount": 0
+}

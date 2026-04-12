@@ -1,0 +1,26 @@
+{
+  "name": "weavy-agent-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node src/server.js --port 3000",
+    "dev:next": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "serve:api": "node src/server.js",
+    "cli": "node project.js"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.69",
+    "@ai-sdk/openai": "^3.0.52",
+    "@langchain/core": "^1.1.39",
+    "@langchain/langgraph": "^1.2.8",
+    "ai": "^6.0.0",
+    "next": "^16.2.3",
+    "pg": "^8.16.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "^3.25.2"
+  }
+}
