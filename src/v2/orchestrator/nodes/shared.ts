@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { randomUUID } from "node:crypto";
 import { generateObject, stepCountIs, tool } from "ai";
 import { z } from "zod";
 
@@ -500,7 +501,6 @@ export function buildDraftPrompt(
     "Draft the next atomic tool calls needed to move the graph toward completion.",
     "Only propose tool calls that can be executed by the atomic tool layer.",
     "For `create-node`, always include:",
-    "- `nodeId`: a new UUID-like string for the graph node",
     "- `definitionId`: one of the definitionIds shown in the registry summary",
     "- `displayName`: the node display name from the registry summary",
     "- `params`: an array of `{ key, value }` entries, or an empty array if the node has no params",
@@ -619,7 +619,7 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
         toolName: "create-node",
         input: CreateNodeToolLLMInputSchema.parse({
           definitionId: requireString(toolCall.input.definitionId, "definitionId", toolCall.toolName),
-          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName),
+          nodeId: toolCall.input.nodeId ?? `node-${randomUUID()}`,
           displayName: requireString(toolCall.input.displayName, "displayName", toolCall.toolName),
           params: toolCall.input.params ?? [],
         }),
@@ -637,7 +637,7 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
       return OrchestratorToolCallSchema.parse({
         toolName: "connect-ports",
         input: ConnectPortsToolInputSchema.parse({
-          edgeId: requireString(toolCall.input.edgeId, "edgeId", toolCall.toolName),
+          edgeId: toolCall.input.edgeId ?? `edge-${randomUUID()}`,
           fromNodeId: requireString(toolCall.input.fromNodeId, "fromNodeId", toolCall.toolName),
           fromPortKey: requireString(toolCall.input.fromPortKey, "fromPortKey", toolCall.toolName),
           toNodeId: requireString(toolCall.input.toNodeId, "toNodeId", toolCall.toolName),
