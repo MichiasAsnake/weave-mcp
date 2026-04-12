@@ -98,6 +98,12 @@ export async function POST(request: Request): Promise<Response> {
       failureReason: finalState.failureReason ?? null,
       reviewResult: finalState.reviewResult ?? null,
       proposedToolCallCount: finalState.proposedToolCalls?.length ?? 0,
+      plan: finalState.plan ?? null,
+      recentMessages: (finalState.messages ?? []).slice(-10).map((m) => ({
+        nodeName: m.nodeName,
+        role: m.role,
+        content: m.content,
+      })),
     };
 
     const orchestratorFailed = finalState.status === "failed";

@@ -509,6 +509,9 @@ export function buildDraftPrompt(
     "",
     "Draft the next atomic tool calls needed to move the graph toward completion.",
     "Only propose tool calls that can be executed by the atomic tool layer.",
+    "",
+    "IMPORTANT: You MUST emit at least one tool call in `proposedToolCalls`. Returning an empty array is treated as a failure. Work from `Plan.steps` and emit one or more `create-node` / `connect-ports` calls that implement the next unbuilt step(s).",
+    "",
     "## create-node",
     "REQUIRED fields (all three MUST be non-null strings):",
     "- `definitionId`: MUST be one of the exact definitionId strings from the registry summary below. Copy it exactly.",
@@ -576,6 +579,8 @@ export function buildFinalizeRevisionPrompt(
     `Graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
     "",
     "Propose only the atomic tool calls needed to address the semantic gaps.",
+    "",
+    "IMPORTANT: You MUST emit at least one tool call in `proposedToolCalls`. Returning an empty array is treated as a failure. Close each semantic gap with a concrete tool call.",
   ].join("\n");
 }
 
