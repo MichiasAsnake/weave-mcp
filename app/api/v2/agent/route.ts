@@ -30,6 +30,7 @@ export async function POST(request: Request): Promise<Response> {
       process.env.ORCHESTRATOR_MODEL ||
       process.env.OPENAI_MODEL ||
       "gpt-4o";
+    const threadId = body.sessionId || `api-v2-agent-${Date.now()}`;
 
     const { graph } = await createOrchestratorGraph({
       model: openai(modelName),
@@ -42,6 +43,7 @@ export async function POST(request: Request): Promise<Response> {
           maxRevisionCount: number;
         },
         options: {
+          recursionLimit?: number;
           configurable: {
             thread_id: string;
           };
@@ -56,8 +58,9 @@ export async function POST(request: Request): Promise<Response> {
         maxRevisionCount: 3,
       },
       {
+        recursionLimit: 50,
         configurable: {
-          thread_id: body.sessionId || `api-v2-agent-${Date.now()}`,
+          thread_id: threadId,
         },
       },
     );

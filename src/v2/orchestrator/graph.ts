@@ -116,12 +116,23 @@ export async function createOrchestratorGraph(
 }
 
 function routeAfterValidateGraph(state: OrchestratorState): "review_graph" | "decide_repair" {
+  console.log("[route]", "validate_graph", {
+    ok: state.validationResult?.ok ?? false,
+    errors: state.validationResult?.errorCount ?? null,
+    warnings: state.validationResult?.warningCount ?? null,
+  });
   return state.validationResult?.ok ? "review_graph" : "decide_repair";
 }
 
 function routeAfterDecideRepair(
   state: OrchestratorState,
 ): "apply_tool_step" | "plan_graph" | "fail" {
+  console.log("[route]", "decide_repair", {
+    status: state.status,
+    revisionCount: state.revisionCount,
+    maxRevisionCount: state.maxRevisionCount,
+    proposedToolCalls: state.proposedToolCalls.length,
+  });
   if (state.status === "repair_local") {
     return "apply_tool_step";
   }
@@ -136,6 +147,12 @@ function routeAfterDecideRepair(
 function routeAfterRevalidateGraph(
   state: OrchestratorState,
 ): "review_graph" | "decide_repair" | "plan_graph" | "fail" {
+  console.log("[route]", "revalidate_graph", {
+    ok: state.validationResult?.ok ?? false,
+    revisionCount: state.revisionCount,
+    maxRevisionCount: state.maxRevisionCount,
+    graphHistory: state.graphHistory.length,
+  });
   if (state.validationResult?.ok) {
     return "review_graph";
   }
@@ -154,6 +171,12 @@ function routeAfterRevalidateGraph(
 function routeAfterDecideFinalize(
   state: OrchestratorState,
 ): "finalize_result" | "apply_tool_step" | "plan_graph" | "fail" {
+  console.log("[route]", "decide_finalize", {
+    status: state.status,
+    hasReviewResult: Boolean(state.reviewResult),
+    revisionCount: state.revisionCount,
+    maxRevisionCount: state.maxRevisionCount,
+  });
   if (state.status === "finalize" || state.status === "complete") {
     return "finalize_result";
   }

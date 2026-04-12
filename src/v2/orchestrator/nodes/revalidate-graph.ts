@@ -24,13 +24,20 @@ export async function revalidateGraphNode(
     validationResult,
     note: "Post-repair validation pass.",
   });
+  const nextRevisionCount = validationResult.ok ? state.revisionCount : state.revisionCount + 1;
+  console.log("[node]", "revalidate_graph_result", {
+    ok: validationResult.ok,
+    errorCount: validationResult.errorCount,
+    revisionCount: nextRevisionCount,
+    maxRevisionCount: state.maxRevisionCount,
+  });
 
   const nextState = OrchestratorStateSchema.parse({
     ...state,
     validationResult,
     graphHistory: historyUpdate.graphHistory,
     graphRevisionIndex: historyUpdate.graphRevisionIndex,
-    revisionCount: validationResult.ok ? state.revisionCount : state.revisionCount + 1,
+    revisionCount: nextRevisionCount,
     status: validationResult.ok ? "review_graph" : "decide_repair",
     messages: appendMessage(
       state,
