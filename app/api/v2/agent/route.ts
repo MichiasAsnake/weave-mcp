@@ -37,9 +37,11 @@ export async function POST(request: Request): Promise<Response> {
     const runnableGraph = graph as {
       invoke: (
         input: {
-          userRequest: string;
-          sessionId?: string;
-          maxRevisionCount: number;
+          data: {
+            userRequest: string;
+            sessionId?: string;
+            maxRevisionCount: number;
+          };
         },
         options: {
           recursionLimit?: number;
@@ -50,11 +52,13 @@ export async function POST(request: Request): Promise<Response> {
       ) => Promise<OrchestratorState>;
     };
 
-    const finalState = await runnableGraph.invoke(
+    const result = await runnableGraph.invoke(
       {
-        userRequest: body.userRequest,
-        sessionId: body.sessionId,
-        maxRevisionCount: 3,
+        data: {
+          userRequest: body.userRequest,
+          sessionId: body.sessionId,
+          maxRevisionCount: 3,
+        },
       },
       {
         recursionLimit: 50,
@@ -63,6 +67,7 @@ export async function POST(request: Request): Promise<Response> {
         },
       },
     );
+    const finalState = result.data;
 
     console.log("[agent] orchestrator complete", finalState.status);
 

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { END, START, StateGraph } from "@langchain/langgraph";
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
 import { runV2OrchestratorMigrations } from "../db/migrations.ts";
 import { getSharedPostgresPool } from "../db/connection.ts";
@@ -29,6 +29,13 @@ import { reviewGraphNode } from "./nodes/review-graph.ts";
 import { validateGraphNode } from "./nodes/validate-graph.ts";
 import { hasNoProgressAfterTwoCycles } from "./nodes/shared.ts";
 
+const OrchestratorAnnotation = Annotation.Root({
+  data: Annotation<OrchestratorState>({
+    reducer: (_prev, next) => next,
+    default: () => ({}) as OrchestratorState,
+  }),
+});
+
 export async function createOrchestratorGraph(
   runtimeOverrides: Partial<OrchestratorRuntime> & Pick<OrchestratorRuntime, "model">,
 ): Promise<OrchestratorGraphBundle> {
@@ -44,28 +51,56 @@ export async function createOrchestratorGraph(
     checkpointSaver,
   };
 
-  const builder: any = new StateGraph({
-    state: OrchestratorStateSchema,
-    input: OrchestratorInputSchema,
-    output: OrchestratorStateSchema,
-  });
+  const builder: any = new StateGraph(OrchestratorAnnotation);
 
-  builder.addNode("receive_request", (state) => receiveRequestNode(state, runtime));
-  builder.addNode("load_session", (state) => loadSessionNode(state, runtime));
-  builder.addNode("load_registry", (state) => loadRegistryNode(state, runtime));
-  builder.addNode("interpret_request", (state) => interpretRequestNode(state, runtime));
-  builder.addNode("retrieve_context", (state) => retrieveContextNode(state, runtime));
-  builder.addNode("plan_graph", (state) => planGraphNode(state, runtime));
-  builder.addNode("draft_graph", (state) => draftGraphNode(state, runtime));
-  builder.addNode("validate_graph", (state) => validateGraphNode(state, runtime));
-  builder.addNode("decide_repair", (state) => decideRepairNode(state, runtime));
-  builder.addNode("apply_tool_step", (state) => applyToolStepNode(state, runtime));
-  builder.addNode("revalidate_graph", (state) => revalidateGraphNode(state, runtime));
-  builder.addNode("review_graph", (state) => reviewGraphNode(state, runtime));
-  builder.addNode("decide_finalize", (state) => decideFinalizeNode(state, runtime));
-  builder.addNode("finalize_result", (state) => finalizeResultNode(state, runtime));
-  builder.addNode("complete", (state) => completeNode(state, runtime));
-  builder.addNode("fail", (state) => failNode(state, runtime));
+  builder.addNode("receive_request", async (annotatedState) => ({
+    data: await receiveRequestNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("load_session", async (annotatedState) => ({
+    data: await loadSessionNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("load_registry", async (annotatedState) => ({
+    data: await loadRegistryNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("interpret_request", async (annotatedState) => ({
+    data: await interpretRequestNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("retrieve_context", async (annotatedState) => ({
+    data: await retrieveContextNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("plan_graph", async (annotatedState) => ({
+    data: await planGraphNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("draft_graph", async (annotatedState) => ({
+    data: await draftGraphNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("validate_graph", async (annotatedState) => ({
+    data: await validateGraphNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("decide_repair", async (annotatedState) => ({
+    data: await decideRepairNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("apply_tool_step", async (annotatedState) => ({
+    data: await applyToolStepNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("revalidate_graph", async (annotatedState) => ({
+    data: await revalidateGraphNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("review_graph", async (annotatedState) => ({
+    data: await reviewGraphNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("decide_finalize", async (annotatedState) => ({
+    data: await decideFinalizeNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("finalize_result", async (annotatedState) => ({
+    data: await finalizeResultNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("complete", async (annotatedState) => ({
+    data: await completeNode(annotatedState.data, runtime),
+  }));
+  builder.addNode("fail", async (annotatedState) => ({
+    data: await failNode(annotatedState.data, runtime),
+  }));
 
   builder.addEdge(START, "receive_request");
   builder.addEdge("receive_request", "load_session");
@@ -115,7 +150,8 @@ export async function createOrchestratorGraph(
   };
 }
 
-function routeAfterValidateGraph(state: OrchestratorState): "review_graph" | "decide_repair" {
+function routeAfterValidateGraph(annotatedState): "review_graph" | "decide_repair" {
+  const state = annotatedState.data;
   console.log("[route]", "validate_graph", {
     ok: state.validationResult?.ok ?? false,
     errors: state.validationResult?.errorCount ?? null,
@@ -125,8 +161,9 @@ function routeAfterValidateGraph(state: OrchestratorState): "review_graph" | "de
 }
 
 function routeAfterDecideRepair(
-  state: OrchestratorState,
+  annotatedState,
 ): "apply_tool_step" | "plan_graph" | "fail" {
+  const state = annotatedState.data;
   console.log("[route]", "decide_repair", {
     status: state.status,
     revisionCount: state.revisionCount,
@@ -145,8 +182,9 @@ function routeAfterDecideRepair(
 }
 
 function routeAfterRevalidateGraph(
-  state: OrchestratorState,
+  annotatedState,
 ): "review_graph" | "decide_repair" | "plan_graph" | "fail" {
+  const state = annotatedState.data;
   console.log("[route]", "revalidate_graph", {
     ok: state.validationResult?.ok ?? false,
     revisionCount: state.revisionCount,
@@ -169,8 +207,9 @@ function routeAfterRevalidateGraph(
 }
 
 function routeAfterDecideFinalize(
-  state: OrchestratorState,
+  annotatedState,
 ): "finalize_result" | "apply_tool_step" | "plan_graph" | "fail" {
+  const state = annotatedState.data;
   console.log("[route]", "decide_finalize", {
     status: state.status,
     hasReviewResult: Boolean(state.reviewResult),
