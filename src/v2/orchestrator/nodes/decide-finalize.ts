@@ -78,6 +78,13 @@ export async function decideFinalizeNode(
   }
 
   const revisionDraft = await runFinalizeRevisionModel(state, state.registrySnapshot, runtime);
+  const skippedSummary =
+    revisionDraft.skippedToolCalls && revisionDraft.skippedToolCalls.length > 0
+      ? ` Skipped ${revisionDraft.skippedToolCalls.length} invalid call(s): ${revisionDraft.skippedToolCalls
+          .map((s) => `${s.toolName} — ${s.reason}`)
+          .join("; ")}`
+      : "";
+
   const nextState = OrchestratorStateSchema.parse({
     ...state,
     proposedToolCalls: revisionDraft.proposedToolCalls,
@@ -88,7 +95,7 @@ export async function decideFinalizeNode(
       {
         nodeName: "decide_finalize",
         role: "assistant",
-        content: `Planned ${revisionDraft.proposedToolCalls.length} semantic revision tool call(s).`,
+        content: `Planned ${revisionDraft.proposedToolCalls.length} semantic revision tool call(s).${skippedSummary}`,
       },
       runtime,
     ),

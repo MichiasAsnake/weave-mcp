@@ -29,6 +29,13 @@ export async function draftGraphNode(
   ]);
   console.log("[node]", "draft_graph llm call complete");
 
+  const skippedSummary =
+    draft.skippedToolCalls && draft.skippedToolCalls.length > 0
+      ? ` Skipped ${draft.skippedToolCalls.length} invalid call(s): ${draft.skippedToolCalls
+          .map((s) => `${s.toolName} — ${s.reason}`)
+          .join("; ")}`
+      : "";
+
   const nextState = OrchestratorStateSchema.parse({
     ...state,
     workingGraph,
@@ -39,7 +46,7 @@ export async function draftGraphNode(
       {
         nodeName: "draft_graph",
         role: "assistant",
-        content: `Drafted ${draft.proposedToolCalls.length} atomic tool call(s).`,
+        content: `Drafted ${draft.proposedToolCalls.length} atomic tool call(s).${skippedSummary}`,
       },
       runtime,
     ),

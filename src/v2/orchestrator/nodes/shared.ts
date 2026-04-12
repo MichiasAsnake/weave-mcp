@@ -731,13 +731,33 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
   }
 }
 
+export interface NormalizedToolCallBatch {
+  normalized: OrchestratorToolCall[];
+  skipped: Array<{ toolName: string; reason: string; rawInput: unknown }>;
+}
+
 export function normalizeLLMToolCalls(
   toolCalls: Array<z.infer<typeof LLMToolCallSchema>>,
-): OrchestratorToolCall[] {
-  return toolCalls.map((toolCall) => {
+): NormalizedToolCallBatch {
+  const normalized: OrchestratorToolCall[] = [];
+  const skipped: NormalizedToolCallBatch["skipped"] = [];
+
+  for (const toolCall of toolCalls) {
     console.log(`[debug] ${toolCall.toolName} raw input:`, JSON.stringify(toolCall.input));
-    return normalizeLLMToolCall(toolCall);
-  });
+    try {
+      normalized.push(normalizeLLMToolCall(toolCall));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      skipped.push({
+        toolName: toolCall.toolName,
+        reason,
+        rawInput: toolCall.input,
+      });
+      console.log(`[debug] skipped ${toolCall.toolName}: ${reason}`);
+    }
+  }
+
+  return { normalized, skipped };
 }
 
 export async function runIntentModel(
@@ -786,8 +806,10 @@ export async function runDraftModel(
     tools: buildPlanningTools(),
     maxSteps: 4,
   });
+  const batch = normalizeLLMToolCalls(result.proposedToolCalls);
   return {
-    proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
+    proposedToolCalls: batch.normalized,
+    skippedToolCalls: batch.skipped,
   };
 }
 
@@ -805,9 +827,11 @@ export async function runRepairModel(
     tools: buildPlanningTools(),
     maxSteps: 4,
   });
+  const batch = normalizeLLMToolCalls(result.proposedToolCalls);
   return {
     ...result,
-    proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
+    proposedToolCalls: batch.normalized,
+    skippedToolCalls: batch.skipped,
   };
 }
 
@@ -840,8 +864,10 @@ export async function runFinalizeRevisionModel(
     tools: buildPlanningTools(),
     maxSteps: 4,
   });
+  const batch = normalizeLLMToolCalls(result.proposedToolCalls);
   return {
-    proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
+    proposedToolCalls: batch.normalized,
+    skippedToolCalls: batch.skipped,
   };
 }
 
