@@ -627,12 +627,19 @@ export const RepairDecisionSchema = z.object({
 });
 
 export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>): OrchestratorToolCall {
-  const requireString = (value: string | null, fieldName: string, toolName: string): string => {
+  const requireString = (
+    value: string | null,
+    fieldName: string,
+    toolName: string,
+    rawInput: unknown,
+  ): string => {
     if (value && value.length > 0) {
       return value;
     }
 
-    throw new Error(`LLM emitted ${toolName} without required string field ${fieldName}.`);
+    throw new Error(
+      `LLM emitted ${toolName} without required string field ${fieldName}. Raw input: ${JSON.stringify(rawInput)}`,
+    );
   };
 
   switch (toolCall.toolName) {
@@ -640,9 +647,9 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
       return OrchestratorToolCallSchema.parse({
         toolName: "create-node",
         input: CreateNodeToolLLMInputSchema.parse({
-          definitionId: requireString(toolCall.input.definitionId, "definitionId", toolCall.toolName),
+          definitionId: requireString(toolCall.input.definitionId, "definitionId", toolCall.toolName, toolCall.input),
           nodeId: toolCall.input.nodeId ?? `node-${randomUUID()}`,
-          displayName: requireString(toolCall.input.displayName, "displayName", toolCall.toolName),
+          displayName: requireString(toolCall.input.displayName, "displayName", toolCall.toolName, toolCall.input),
           params: toolCall.input.params ?? [],
         }),
       });
@@ -650,8 +657,8 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
       return OrchestratorToolCallSchema.parse({
         toolName: "set-node-param",
         input: SetNodeParamToolLLMInputSchema.parse({
-          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName),
-          paramKey: requireString(toolCall.input.paramKey, "paramKey", toolCall.toolName),
+          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName, toolCall.input),
+          paramKey: requireString(toolCall.input.paramKey, "paramKey", toolCall.toolName, toolCall.input),
           value: toolCall.input.paramValue,
         }),
       });
@@ -660,24 +667,24 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
         toolName: "connect-ports",
         input: ConnectPortsToolInputSchema.parse({
           edgeId: toolCall.input.edgeId ?? `edge-${randomUUID()}`,
-          fromNodeId: requireString(toolCall.input.fromNodeId, "fromNodeId", toolCall.toolName),
-          fromPortKey: requireString(toolCall.input.fromPortKey, "fromPortKey", toolCall.toolName),
-          toNodeId: requireString(toolCall.input.toNodeId, "toNodeId", toolCall.toolName),
-          toPortKey: requireString(toolCall.input.toPortKey, "toPortKey", toolCall.toolName),
+          fromNodeId: requireString(toolCall.input.fromNodeId, "fromNodeId", toolCall.toolName, toolCall.input),
+          fromPortKey: requireString(toolCall.input.fromPortKey, "fromPortKey", toolCall.toolName, toolCall.input),
+          toNodeId: requireString(toolCall.input.toNodeId, "toNodeId", toolCall.toolName, toolCall.input),
+          toPortKey: requireString(toolCall.input.toPortKey, "toPortKey", toolCall.toolName, toolCall.input),
         }),
       });
     case "disconnect-edge":
       return OrchestratorToolCallSchema.parse({
         toolName: "disconnect-edge",
         input: DisconnectEdgeToolInputSchema.parse({
-          edgeId: requireString(toolCall.input.edgeId, "edgeId", toolCall.toolName),
+          edgeId: requireString(toolCall.input.edgeId, "edgeId", toolCall.toolName, toolCall.input),
         }),
       });
     case "remove-node":
       return OrchestratorToolCallSchema.parse({
         toolName: "remove-node",
         input: RemoveNodeToolInputSchema.parse({
-          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName),
+          nodeId: requireString(toolCall.input.nodeId, "nodeId", toolCall.toolName, toolCall.input),
         }),
       });
     case "set-outputs":
@@ -694,11 +701,11 @@ export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>
           field: {
             key: requireString(toolCall.input.fieldKey, "fieldKey", toolCall.toolName),
             source: {
-              nodeId: requireString(toolCall.input.bindingNodeId, "bindingNodeId", toolCall.toolName),
-              bindingKey: requireString(toolCall.input.bindingKey, "bindingKey", toolCall.toolName),
+              nodeId: requireString(toolCall.input.bindingNodeId, "bindingNodeId", toolCall.toolName, toolCall.input),
+              bindingKey: requireString(toolCall.input.bindingKey, "bindingKey", toolCall.toolName, toolCall.input),
               bindingType: toolCall.input.bindingType ?? "param",
             },
-            label: requireString(toolCall.input.fieldLabel, "fieldLabel", toolCall.toolName),
+            label: requireString(toolCall.input.fieldLabel, "fieldLabel", toolCall.toolName, toolCall.input),
             control: "text",
             required: false,
             locked: false,
