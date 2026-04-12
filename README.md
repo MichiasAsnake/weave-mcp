@@ -1,1 +1,2 @@
 # workflow
+# weave-mcp
