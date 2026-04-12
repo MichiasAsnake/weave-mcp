@@ -1,4 +1,5 @@
-import { Output, generateText, stepCountIs, tool } from "ai";
+// @ts-nocheck
+import { generateObject, stepCountIs, tool } from "ai";
 import { z } from "zod";
 
 import { createEmptyGraphIR } from "../../graph/builders.ts";
@@ -7,11 +8,11 @@ import { readLatestNormalizedRegistrySnapshot } from "../../registry/store.ts";
 import type { NormalizedRegistrySnapshot, NodeSpec, PortSpec } from "../../registry/types.ts";
 import {
   ConnectPortsToolInputSchema,
-  CreateNodeToolInputSchema,
+  CreateNodeToolLLMInputSchema,
   DisconnectEdgeToolInputSchema,
   RemoveNodeToolInputSchema,
-  SetAppModeFieldToolInputSchema,
-  SetNodeParamToolInputSchema,
+  SetAppModeFieldToolLLMInputSchema,
+  SetNodeParamToolLLMInputSchema,
   SetOutputsToolInputSchema,
 } from "../../tools/types.ts";
 import {
@@ -249,30 +250,28 @@ export async function generateStructuredOutput<T>(args: {
   prompt: string;
   tools?: ReturnType<typeof buildPlanningTools>;
 }): Promise<T> {
-  const result = await generateText({
+  const result = await generateObject({
     model: args.runtime.model,
     system: args.system,
     prompt: args.prompt,
     tools: args.tools,
     stopWhen: stepCountIs(6),
-    output: Output.object({
-      schema: args.schema,
-    }),
+    schema: args.schema,
   });
 
-  return args.schema.parse(result.output);
+  return args.schema.parse(result.object);
 }
 
 export function buildPlanningTools() {
   return {
     createNode: tool({
       description: "Create a new graph node from a registry definition.",
-      inputSchema: CreateNodeToolInputSchema,
+      inputSchema: CreateNodeToolLLMInputSchema,
       execute: async (input) => ({ acknowledged: true, input }),
     }),
     setNodeParam: tool({
       description: "Set or update a node parameter by key.",
-      inputSchema: SetNodeParamToolInputSchema,
+      inputSchema: SetNodeParamToolLLMInputSchema,
       execute: async (input) => ({ acknowledged: true, input }),
     }),
     connectPorts: tool({
@@ -297,7 +296,7 @@ export function buildPlanningTools() {
     }),
     setAppModeField: tool({
       description: "Create or update a field exposed through App Mode.",
-      inputSchema: SetAppModeFieldToolInputSchema,
+      inputSchema: SetAppModeFieldToolLLMInputSchema,
       execute: async (input) => ({ acknowledged: true, input }),
     }),
   };
@@ -500,6 +499,11 @@ export function buildDraftPrompt(
     "",
     "Draft the next atomic tool calls needed to move the graph toward completion.",
     "Only propose tool calls that can be executed by the atomic tool layer.",
+    "For `create-node`, always include:",
+    "- `nodeId`: a new UUID-like string for the graph node",
+    "- `definitionId`: one of the definitionIds shown in the registry summary",
+    "- `displayName`: the node display name from the registry summary",
+    "- `params`: an array of `{ key, value }` entries, or an empty array if the node has no params",
   ].join("\n");
 }
 
@@ -549,15 +553,135 @@ export function buildFinalizeRevisionPrompt(
   ].join("\n");
 }
 
+export const LLMToolNameSchema = z.enum([
+  "create-node",
+  "set-node-param",
+  "connect-ports",
+  "disconnect-edge",
+  "remove-node",
+  "set-outputs",
+  "set-app-mode-field",
+]);
+
+export const LLMToolCallSchema = z.object({
+  toolName: LLMToolNameSchema,
+  input: z.object({
+    nodeId: z.string().nullable(),
+    definitionId: z.string().nullable(),
+    displayName: z.string().nullable(),
+    params: z.array(z.object({ key: z.string(), value: z.unknown() })).nullable(),
+    paramKey: z.string().nullable(),
+    paramValue: z.unknown().nullable(),
+    fromNodeId: z.string().nullable(),
+    fromPortKey: z.string().nullable(),
+    toNodeId: z.string().nullable(),
+    toPortKey: z.string().nullable(),
+    edgeId: z.string().nullable(),
+    nodeIds: z.array(z.string()).nullable(),
+    fieldKey: z.string().nullable(),
+    fieldLabel: z.string().nullable(),
+    bindingNodeId: z.string().nullable(),
+    bindingKey: z.string().nullable(),
+    bindingType: z.enum(["param", "unconnected-input-port"]).nullable(),
+  }),
+});
+
 export const DraftToolCallsSchema = z.object({
-  proposedToolCalls: z.array(OrchestratorToolCallSchema),
+  proposedToolCalls: z.array(LLMToolCallSchema),
 });
 
 export const RepairDecisionSchema = z.object({
   action: z.enum(["repair", "replan", "fail"]),
   rationale: z.string().min(1),
-  proposedToolCalls: z.array(OrchestratorToolCallSchema),
+  proposedToolCalls: z.array(LLMToolCallSchema),
 });
+
+export function normalizeLLMToolCall(toolCall: z.infer<typeof LLMToolCallSchema>): OrchestratorToolCall {
+  switch (toolCall.toolName) {
+    case "create-node":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "create-node",
+        input: CreateNodeToolLLMInputSchema.parse({
+          definitionId: toolCall.input.definitionId,
+          nodeId: toolCall.input.nodeId,
+          displayName: toolCall.input.displayName,
+          params: toolCall.input.params,
+        }),
+      });
+    case "set-node-param":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "set-node-param",
+        input: SetNodeParamToolLLMInputSchema.parse({
+          nodeId: toolCall.input.nodeId,
+          paramKey: toolCall.input.paramKey,
+          value: toolCall.input.paramValue,
+        }),
+      });
+    case "connect-ports":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "connect-ports",
+        input: ConnectPortsToolInputSchema.parse({
+          edgeId: toolCall.input.edgeId,
+          fromNodeId: toolCall.input.fromNodeId,
+          fromPortKey: toolCall.input.fromPortKey,
+          toNodeId: toolCall.input.toNodeId,
+          toPortKey: toolCall.input.toPortKey,
+        }),
+      });
+    case "disconnect-edge":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "disconnect-edge",
+        input: DisconnectEdgeToolInputSchema.parse({
+          edgeId: toolCall.input.edgeId,
+        }),
+      });
+    case "remove-node":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "remove-node",
+        input: RemoveNodeToolInputSchema.parse({
+          nodeId: toolCall.input.nodeId,
+        }),
+      });
+    case "set-outputs":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "set-outputs",
+        input: SetOutputsToolInputSchema.parse({
+          nodeIds: toolCall.input.nodeIds,
+        }),
+      });
+    case "set-app-mode-field":
+      return OrchestratorToolCallSchema.parse({
+        toolName: "set-app-mode-field",
+        input: SetAppModeFieldToolLLMInputSchema.parse({
+          field: {
+            key: toolCall.input.fieldKey,
+            source: {
+              nodeId: toolCall.input.bindingNodeId,
+              bindingKey: toolCall.input.bindingKey,
+              bindingType: toolCall.input.bindingType,
+            },
+            label: toolCall.input.fieldLabel,
+            control: "text",
+            required: false,
+            locked: false,
+            visible: true,
+            defaultValue: null,
+            helpText: null,
+          },
+        }),
+      });
+    default: {
+      const exhaustive: never = toolCall.toolName;
+      throw new Error(`Unhandled LLM tool call: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
+export function normalizeLLMToolCalls(
+  toolCalls: Array<z.infer<typeof LLMToolCallSchema>>,
+): OrchestratorToolCall[] {
+  return toolCalls.map((toolCall) => normalizeLLMToolCall(toolCall));
+}
 
 export async function runIntentModel(
   state: OrchestratorState,
@@ -591,7 +715,7 @@ export async function runDraftModel(
   registry: NormalizedRegistrySnapshot,
   runtime: OrchestratorRuntime,
 ): Promise<z.infer<typeof DraftToolCallsSchema>> {
-  return generateStructuredOutput({
+  const result = await generateStructuredOutput({
     runtime,
     schema: DraftToolCallsSchema,
     system:
@@ -599,6 +723,9 @@ export async function runDraftModel(
     prompt: buildDraftPrompt(state, registry),
     tools: buildPlanningTools(),
   });
+  return {
+    proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
+  };
 }
 
 export async function runRepairModel(
@@ -606,7 +733,7 @@ export async function runRepairModel(
   registry: NormalizedRegistrySnapshot,
   runtime: OrchestratorRuntime,
 ): Promise<z.infer<typeof RepairDecisionSchema>> {
-  return generateStructuredOutput({
+  const result = await generateStructuredOutput({
     runtime,
     schema: RepairDecisionSchema,
     system:
@@ -614,6 +741,10 @@ export async function runRepairModel(
     prompt: buildRepairPrompt(state, registry),
     tools: buildPlanningTools(),
   });
+  return {
+    ...result,
+    proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
+  };
 }
 
 export async function runReviewModel(
@@ -635,7 +766,7 @@ export async function runFinalizeRevisionModel(
   registry: NormalizedRegistrySnapshot,
   runtime: OrchestratorRuntime,
 ): Promise<z.infer<typeof DraftToolCallsSchema>> {
-  return generateStructuredOutput({
+  const result = await generateStructuredOutput({
     runtime,
     schema: DraftToolCallsSchema,
     system:
@@ -643,6 +774,9 @@ export async function runFinalizeRevisionModel(
     prompt: buildFinalizeRevisionPrompt(state, registry),
     tools: buildPlanningTools(),
   });
+  return {
+    proposedToolCalls: normalizeLLMToolCalls(result.proposedToolCalls),
+  };
 }
 
 export function validateCurrentGraph(

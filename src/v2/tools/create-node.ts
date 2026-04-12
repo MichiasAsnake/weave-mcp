@@ -5,6 +5,7 @@ import { NodeParamSchemasByDefinitionId } from "../generated/node-schemas.ts";
 import type { GraphIR } from "../graph/types.ts";
 import type { RegistrySnapshot, ToolResult } from "./types.ts";
 import {
+  CreateNodeToolLLMInputSchema,
   CreateNodeToolInputSchema,
   finalizeToolMutation,
   getGraphNodeById,
@@ -14,13 +15,19 @@ import {
 } from "./types.ts";
 
 export type CreateNodeToolInput = z.infer<typeof CreateNodeToolInputSchema>;
+export type CreateNodeToolLLMInput = z.infer<typeof CreateNodeToolLLMInputSchema>;
+
+const CreateNodeToolAnyInputSchema = z.union([
+  CreateNodeToolInputSchema,
+  CreateNodeToolLLMInputSchema,
+]);
 
 export function createNodeTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
-  rawInput: CreateNodeToolInput,
+  rawInput: CreateNodeToolInput | CreateNodeToolLLMInput,
 ): ToolResult {
-  const input = CreateNodeToolInputSchema.parse(rawInput);
+  const input = CreateNodeToolAnyInputSchema.parse(rawInput);
   const nodeSpec = getNodeSpecByDefinitionId(registry, input.definitionId);
 
   if (!nodeSpec) {
@@ -50,7 +57,10 @@ export function createNodeTool(
   }
 
   const paramsSchema = NodeParamSchemasByDefinitionId[input.definitionId];
-  const parsedParams = paramsSchema.safeParse(input.params || {});
+  const paramsRecord = Array.isArray(input.params)
+    ? Object.fromEntries(input.params.map(({ key, value }) => [key, value]))
+    : (input.params || {});
+  const parsedParams = paramsSchema.safeParse(paramsRecord);
   if (!parsedParams.success) {
     return makeInvalidToolResult(graph, [
       makeToolIssue({
