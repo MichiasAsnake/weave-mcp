@@ -49,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
             thread_id: string;
           };
         },
-      ) => Promise<OrchestratorState>;
+      ) => Promise<{ data: OrchestratorState }>;
     };
 
     const result = await runnableGraph.invoke(
