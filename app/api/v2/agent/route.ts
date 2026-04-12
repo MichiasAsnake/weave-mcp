@@ -89,16 +89,25 @@ export async function POST(request: Request): Promise<Response> {
 
     console.log("[agent] orchestrator complete", finalState.status);
 
-    return Response.json({
-      ok: true,
-      data: {
-        status: finalState.status,
-        requestMode: finalState.requestMode ?? null,
-        revisionCount: finalState.revisionCount,
-        validationResult: finalState.validationResult ?? null,
-        workingGraphNodeTypes: (finalState.workingGraph?.nodes || []).map((node) => node.nodeType),
+    const data = {
+      status: finalState.status,
+      requestMode: finalState.requestMode ?? null,
+      revisionCount: finalState.revisionCount,
+      validationResult: finalState.validationResult ?? null,
+      workingGraphNodeTypes: (finalState.workingGraph?.nodes || []).map((node) => node.nodeType),
+      failureReason: finalState.failureReason ?? null,
+      reviewResult: finalState.reviewResult ?? null,
+      proposedToolCallCount: finalState.proposedToolCalls?.length ?? 0,
+    };
+
+    const orchestratorFailed = finalState.status === "failed";
+    return Response.json(
+      {
+        ok: !orchestratorFailed,
+        data,
       },
-    });
+      { status: orchestratorFailed ? 500 : 200 },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack || "" : "";
