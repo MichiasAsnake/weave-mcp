@@ -58,6 +58,7 @@ export async function decideFinalizeNode(
       ...state,
       proposedToolCalls: [],
       status: "replan",
+      revisionCount: state.revisionCount + 1,
       messages: appendMessage(
         state,
         {
@@ -81,6 +82,7 @@ export async function decideFinalizeNode(
     ...state,
     proposedToolCalls: revisionDraft.proposedToolCalls,
     status: "revise",
+    revisionCount: state.revisionCount + 1,
     messages: appendMessage(
       state,
       {
