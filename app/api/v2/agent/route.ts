@@ -15,6 +15,8 @@ const RequestBodySchema = z.object({
 });
 
 export async function POST(request: Request): Promise<Response> {
+  const breadcrumbs: string[] = [];
+
   try {
     console.log("[agent] starting orchestrator turn");
 
@@ -31,7 +33,6 @@ export async function POST(request: Request): Promise<Response> {
       process.env.ORCHESTRATOR_MODEL ||
       process.env.OPENAI_MODEL ||
       "gpt-4o";
-    const breadcrumbs: string[] = [];
     const { graph } = await createOrchestratorGraph({
       model: openai(modelName),
       breadcrumbs,
@@ -104,6 +105,7 @@ export async function POST(request: Request): Promise<Response> {
         role: m.role,
         content: m.content,
       })),
+      trace: breadcrumbs.slice(-200),
     };
 
     const orchestratorFailed = finalState.status === "failed";
@@ -125,6 +127,7 @@ export async function POST(request: Request): Promise<Response> {
         ok: false,
         failedAtNode: failedAtMatch ? failedAtMatch[1] : null,
         error: message,
+        trace: breadcrumbs.slice(-200),
       },
       {
         status: 500,
