@@ -128,7 +128,9 @@ export async function createOrchestratorGraph(
   builder.addEdge("fail", END);
 
   const graph = builder.compile({
-    checkpointer: checkpointSaver,
+    // Temporarily disable LangGraph checkpoint persistence while debugging
+    // the core orchestrator flow. Session state still persists via v2_agent_sessions.
+    // checkpointer: checkpointSaver,
     name: "weave-v2-agent-orchestrator",
     description:
       "Registry-backed LangGraph orchestrator for drafting, validating, repairing, and finalizing GraphIR workflows.",
