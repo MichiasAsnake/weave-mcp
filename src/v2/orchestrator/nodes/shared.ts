@@ -267,6 +267,10 @@ export function constrainPlanStepDefinitionIds(
     .map((definitionId) => nodeSpecByDefinitionId.get(definitionId))
     .filter(Boolean) as NodeSpec[];
 
+  if (currentNodeSpecs.some(isFileToImageBridgeNodeSpec)) {
+    return { nodeDefinitionIds: step.nodeDefinitionIds };
+  }
+
   if (stepLooksLikeUpscale(step)) {
     if (currentNodeSpecs.some(isImageOnlyUpscalerNodeSpec)) {
       return { nodeDefinitionIds: step.nodeDefinitionIds };
