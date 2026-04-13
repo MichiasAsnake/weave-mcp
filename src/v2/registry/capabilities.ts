@@ -221,11 +221,12 @@ export function getPreferredDefinitionIdsForStep(
   options: StepSelectionOptions = {},
 ): string[] {
   const availableKinds = new Set(options.availableKinds || []);
-  const text = getStepIntentText(step, options.requestText);
+  const stepIntentText = normalizeToken([step.summary, step.expectedOutputs.join(" ")].filter(Boolean).join(" "));
+  const requestAwareText = getStepIntentText(step, options.requestText);
 
-  if (looksLikeExport(text)) {
-    const preferImageToFile = shouldPreferImageToFileExport(text, availableKinds);
-    const fileExportIntent = inferFileExportIntent(text);
+  if (looksLikeExport(stepIntentText)) {
+    const preferImageToFile = shouldPreferImageToFileExport(requestAwareText, availableKinds);
+    const fileExportIntent = inferFileExportIntent(requestAwareText);
     const compatibleCandidates = registry.nodeSpecs.filter((node) =>
       isCompatibleExportNodeForStep(node, step, options)
       && (
@@ -264,7 +265,7 @@ export function getPreferredDefinitionIdsForStep(
     ).slice(0, 1);
   }
 
-  if (looksLikeUpscale(text)) {
+  if (looksLikeUpscale(stepIntentText)) {
     return rankNodeSpecs(
       registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("image-upscale")),
       (node) => {
@@ -279,7 +280,7 @@ export function getPreferredDefinitionIdsForStep(
     ).slice(0, 1);
   }
 
-  if (looksLikeUpload(text)) {
+  if (looksLikeUpload(stepIntentText)) {
     return rankNodeSpecs(
       registry.nodeSpecs.filter((node) => node.capabilities.planningHints.includes("prefer_for_file_import")),
       (node) => {
