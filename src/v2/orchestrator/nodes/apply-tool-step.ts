@@ -28,6 +28,10 @@ export async function applyToolStepNode(
   const resultMessages: string[] = [];
   let batchFailed = false;
 
+  if (state.proposedToolCalls.length === 0) {
+    resultMessages.push("No tool calls were proposed for application.");
+  }
+
   for (const toolCall of state.proposedToolCalls) {
     const result = applyToolCall(candidateGraph, state.registrySnapshot, toolCall, {
       skipGraphValidation: true,
