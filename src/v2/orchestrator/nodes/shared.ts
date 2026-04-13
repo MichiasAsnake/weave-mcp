@@ -205,7 +205,7 @@ function stepLooksLikeUpload(step: { summary: string; expectedOutputs: string[] 
 }
 
 function stepLooksLikeUpscale(step: { summary: string; expectedOutputs: string[] }): boolean {
-  return /upscale/.test(getStepIntentText(step));
+  return /\bupscale\b|\bupscaling\b/.test(getStepIntentText(step));
 }
 
 function stepLooksLikeExport(step: { summary: string; expectedOutputs: string[] }): boolean {
@@ -348,6 +348,20 @@ export function constrainPlanStepDefinitionIds(
       return {
         nodeDefinitionIds: preferred,
         replacementReason: `preferred a dependency-light upscale node for \`${step.summary}\``,
+      };
+    }
+  }
+
+  if (stepLooksLikeExport(step)) {
+    if (currentNodeSpecs.some((nodeSpec) => isImageToFileExporterNodeSpec(nodeSpec) || isFileExportNodeSpec(nodeSpec))) {
+      return { nodeDefinitionIds: step.nodeDefinitionIds };
+    }
+
+    const preferred = getPreferredDefinitionIdsForStep(step, registry);
+    if (preferred.length > 0) {
+      return {
+        nodeDefinitionIds: preferred,
+        replacementReason: `preferred an export-capable file output node for \`${step.summary}\``,
       };
     }
   }
@@ -940,11 +954,13 @@ export function buildDraftPrompt(
     "- `definitionId`: MUST be one of the exact definitionId strings from the constrained candidate list above. Copy it exactly.",
     "- `displayName`: MUST be the exact displayName from the registry for that definitionId.",
     "- `params`: array of `{ key, value }` entries matching the node's paramSchema, or empty array `[]` if none.",
+    "- If you will reference the new node later in the same batch, set `nodeId` explicitly on `create-node` and reuse that exact `nodeId` in later tool calls.",
     "",
     "## connect-ports",
     "REQUIRED fields: `fromNodeId`, `fromPortKey`, `toNodeId`, `toPortKey`.",
     "`fromNodeId` and `toNodeId` MUST be real graph `nodeId` values from the graph node table above or nodeIds created earlier in the same batch.",
     "Never use a `definitionId` where a `nodeId` is required.",
+    "Never emit placeholder values like `<insert-node-id>`; use the real `nodeId` values from the graph node table or from earlier `create-node` calls in the same batch.",
     "If you need to create a node and then wire it, emit `create-node` first and `connect-ports` later in the same batch.",
     "",
     "## set-app-mode-field",
@@ -1034,11 +1050,13 @@ export function buildFinalizeRevisionPrompt(
     "- `definitionId`: MUST be one of the exact definitionId strings from the constrained candidate list above. Copy exactly.",
     "- `displayName`: MUST be the exact displayName from the registry for that definitionId.",
     "- `params`: array of `{ key, value }` or empty array `[]`.",
+    "- If you will reference the new node later in the same batch, set `nodeId` explicitly on `create-node` and reuse that exact `nodeId` in later tool calls.",
     "",
     "## connect-ports",
     "REQUIRED fields: `fromNodeId`, `fromPortKey`, `toNodeId`, `toPortKey`.",
     "`fromNodeId` and `toNodeId` MUST be real graph `nodeId` values from the graph node table above or nodeIds created earlier in the same batch.",
     "Never use a `definitionId` where a `nodeId` is required.",
+    "Never emit placeholder values like `<insert-node-id>`; use the real `nodeId` values from the graph node table or from earlier `create-node` calls in the same batch.",
     "If a missing step has no node yet, create it first and then wire it later in the same batch.",
     "",
     "## set-app-mode-field",
