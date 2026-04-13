@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { OrchestratorStateSchema, type OrchestratorRuntime, type OrchestratorState } from "../types.ts";
-import { appendCheckpoint, appendMessage, persistState, runPlanModel } from "./shared.ts";
+import { appendCheckpoint, appendMessage, constrainPlanStepDefinitionIds, persistState, runPlanModel } from "./shared.ts";
 
 export async function planGraphNode(
   state: OrchestratorState,
@@ -16,6 +16,7 @@ export async function planGraphNode(
     state.registrySnapshot.nodeSpecs.map((nodeSpec) => nodeSpec.source.definitionId),
   );
   const unknownDefinitionIds: Array<{ stepId: string; ids: string[] }> = [];
+  const constrainedDefinitionIds: Array<{ stepId: string; reason: string; ids: string[] }> = [];
   const sanitizedPlan = {
     ...plan,
     steps: plan.steps.map((step) => {
@@ -30,9 +31,28 @@ export async function planGraphNode(
         unknownDefinitionIds.push({ stepId: step.stepId, ids: invalidDefinitionIds });
       }
 
+      const constrainedStep = constrainPlanStepDefinitionIds(
+        {
+          ...step,
+          nodeDefinitionIds: validDefinitionIds,
+        },
+        state.registrySnapshot,
+      );
+
+      if (
+        constrainedStep.replacementReason
+        && constrainedStep.nodeDefinitionIds.join(",") !== validDefinitionIds.join(",")
+      ) {
+        constrainedDefinitionIds.push({
+          stepId: step.stepId,
+          reason: constrainedStep.replacementReason,
+          ids: constrainedStep.nodeDefinitionIds,
+        });
+      }
+
       return {
         ...step,
-        nodeDefinitionIds: validDefinitionIds,
+        nodeDefinitionIds: constrainedStep.nodeDefinitionIds,
       };
     }),
   };
@@ -40,6 +60,11 @@ export async function planGraphNode(
   const unknownDefinitionSummary = unknownDefinitionIds.length > 0
     ? ` Removed ${unknownDefinitionIds.length} step(s) with unknown definitionId(s): ${unknownDefinitionIds
         .map(({ stepId, ids }) => `${stepId}=[${ids.join(", ")}]`)
+        .join("; ")}.`
+    : "";
+  const constrainedDefinitionSummary = constrainedDefinitionIds.length > 0
+    ? ` Replaced ${constrainedDefinitionIds.length} step definition selection(s): ${constrainedDefinitionIds
+        .map(({ stepId, reason, ids }) => `${stepId}=[${ids.join(", ")}] (${reason})`)
         .join("; ")}.`
     : "";
 
@@ -52,7 +77,7 @@ export async function planGraphNode(
       {
         nodeName: "plan_graph",
         role: "assistant",
-        content: `Planned ${sanitizedPlan.steps.length} graph step(s) with ${sanitizedPlan.appModePlan.exposureStrategy} App Mode exposure.${unknownDefinitionSummary}`,
+        content: `Planned ${sanitizedPlan.steps.length} graph step(s) with ${sanitizedPlan.appModePlan.exposureStrategy} App Mode exposure.${unknownDefinitionSummary}${constrainedDefinitionSummary}`,
       },
       runtime,
     ),

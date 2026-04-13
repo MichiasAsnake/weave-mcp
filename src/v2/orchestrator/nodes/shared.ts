@@ -7,7 +7,7 @@ import { z } from "zod";
 import { createEmptyGraphIR } from "../../graph/builders.ts";
 import type { GraphIR } from "../../graph/types.ts";
 import { readLatestNormalizedRegistrySnapshot } from "../../registry/store.ts";
-import type { NormalizedRegistrySnapshot, NodeSpec, PortSpec } from "../../registry/types.ts";
+import type { NormalizedRegistrySnapshot, NodeSpec, PortSpec, ValueKind } from "../../registry/types.ts";
 import {
   ConnectPortsToolInputSchema,
   CreateNodeToolLLMInputSchema,
@@ -177,6 +177,350 @@ export function buildRegistryDefinitionCatalogForLLM(
       return `- ${parts.join(" | ")}`;
     })
     .join("\n");
+}
+
+function getRequiredInputPorts(nodeSpec: NodeSpec): PortSpec[] {
+  return nodeSpec.ports.filter((port) => port.direction === "input" && port.required);
+}
+
+function getOutputPorts(nodeSpec: NodeSpec): PortSpec[] {
+  return nodeSpec.ports.filter((port) => port.direction === "output");
+}
+
+function getRequiredInputKinds(nodeSpec: NodeSpec): ValueKind[] {
+  return getRequiredInputPorts(nodeSpec).map((port) => port.kind);
+}
+
+function getOutputKinds(nodeSpec: NodeSpec): ValueKind[] {
+  return getOutputPorts(nodeSpec).map((port) => port.kind);
+}
+
+function getStepIntentText(step: { summary: string; expectedOutputs: string[] }): string {
+  return `${step.summary} ${step.expectedOutputs.join(" ")}`.toLowerCase();
+}
+
+function stepLooksLikeUpload(step: { summary: string; expectedOutputs: string[] }): boolean {
+  const text = getStepIntentText(step);
+  return /upload|import/.test(text) || (text.includes("file") && text.includes("image"));
+}
+
+function stepLooksLikeUpscale(step: { summary: string; expectedOutputs: string[] }): boolean {
+  return /upscale/.test(getStepIntentText(step));
+}
+
+function stepLooksLikeExport(step: { summary: string; expectedOutputs: string[] }): boolean {
+  return /export|save|download/.test(getStepIntentText(step));
+}
+
+function isUploadSourceNodeSpec(nodeSpec: NodeSpec): boolean {
+  const text = `${nodeSpec.displayName} ${nodeSpec.nodeType} ${nodeSpec.category || ""} ${nodeSpec.subtype || ""}`.toLowerCase();
+  return getRequiredInputPorts(nodeSpec).length === 0
+    && getOutputKinds(nodeSpec).includes("file")
+    && /file|import|upload/.test(text);
+}
+
+function isImageOnlyUpscalerNodeSpec(nodeSpec: NodeSpec): boolean {
+  const requiredKinds = getRequiredInputKinds(nodeSpec);
+  return nodeSpec.displayName.toLowerCase().includes("upscale")
+    && requiredKinds.length === 1
+    && requiredKinds[0] === "image"
+    && getOutputKinds(nodeSpec).includes("image");
+}
+
+function isFileToImageBridgeNodeSpec(nodeSpec: NodeSpec): boolean {
+  const requiredKinds = getRequiredInputKinds(nodeSpec);
+  return requiredKinds.length === 1
+    && requiredKinds[0] === "file"
+    && getOutputKinds(nodeSpec).includes("image")
+    && !nodeSpec.params.some((param) => param.required);
+}
+
+function isImageToFileExporterNodeSpec(nodeSpec: NodeSpec): boolean {
+  const requiredKinds = getRequiredInputKinds(nodeSpec);
+  return requiredKinds.length === 1
+    && requiredKinds[0] === "image"
+    && getOutputKinds(nodeSpec).includes("file");
+}
+
+function isFileExportNodeSpec(nodeSpec: NodeSpec): boolean {
+  const inputPorts = nodeSpec.ports.filter((port) => port.direction === "input");
+  return `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase().includes("export")
+    && inputPorts.some((port) => port.kind === "file");
+}
+
+function rankNodeSpecIds(
+  registry: NormalizedRegistrySnapshot,
+  predicate: (nodeSpec: NodeSpec) => boolean,
+  score: (nodeSpec: NodeSpec) => number,
+): string[] {
+  return registry.nodeSpecs
+    .filter(predicate)
+    .sort((left, right) => score(right) - score(left))
+    .map((nodeSpec) => nodeSpec.source.definitionId);
+}
+
+export function getPreferredDefinitionIdsForStep(
+  step: { summary: string; expectedOutputs: string[] },
+  registry: NormalizedRegistrySnapshot,
+): string[] {
+  if (stepLooksLikeUpscale(step)) {
+    return rankNodeSpecIds(
+      registry,
+      isImageOnlyUpscalerNodeSpec,
+      (nodeSpec) => {
+        let score = 0;
+        const text = nodeSpec.displayName.toLowerCase();
+        if (text.includes("real-esrgan")) score += 6;
+        if (text.includes("upscale")) score += 3;
+        if (nodeSpec.nodeType === "custommodelV2") score += 1;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  if (stepLooksLikeExport(step)) {
+    const imageToFile = rankNodeSpecIds(
+      registry,
+      isImageToFileExporterNodeSpec,
+      (nodeSpec) => {
+        let score = 0;
+        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
+        if (text.includes("export")) score += 4;
+        if (text.includes("file")) score += 2;
+        if (text.includes("psd")) score += 1;
+        return score;
+      },
+    ).slice(0, 1);
+
+    if (imageToFile.length > 0) {
+      return imageToFile;
+    }
+
+    return rankNodeSpecIds(
+      registry,
+      isFileExportNodeSpec,
+      (nodeSpec) => {
+        let score = 0;
+        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
+        if (text.includes("export")) score += 4;
+        if (nodeSpec.ports.some((port) => port.direction === "input" && port.kind === "file" && !port.required)) score += 1;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  if (stepLooksLikeUpload(step)) {
+    return rankNodeSpecIds(
+      registry,
+      isUploadSourceNodeSpec,
+      (nodeSpec) => {
+        let score = 0;
+        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
+        if (text.includes("import")) score += 4;
+        if (text.includes("file")) score += 3;
+        if (nodeSpec.nodeType === "import") score += 2;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  return [];
+}
+
+export function constrainPlanStepDefinitionIds(
+  step: { summary: string; expectedOutputs: string[]; nodeDefinitionIds: string[] },
+  registry: NormalizedRegistrySnapshot,
+): { nodeDefinitionIds: string[]; replacementReason?: string } {
+  const nodeSpecByDefinitionId = new Map(
+    registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
+  );
+  const currentNodeSpecs = step.nodeDefinitionIds
+    .map((definitionId) => nodeSpecByDefinitionId.get(definitionId))
+    .filter(Boolean) as NodeSpec[];
+
+  if (stepLooksLikeUpscale(step)) {
+    if (currentNodeSpecs.some(isImageOnlyUpscalerNodeSpec)) {
+      return { nodeDefinitionIds: step.nodeDefinitionIds };
+    }
+
+    const preferred = getPreferredDefinitionIdsForStep(step, registry);
+    if (preferred.length > 0) {
+      return {
+        nodeDefinitionIds: preferred,
+        replacementReason: `preferred a dependency-light upscale node for \`${step.summary}\``,
+      };
+    }
+  }
+
+  if (step.nodeDefinitionIds.length === 0) {
+    const preferred = getPreferredDefinitionIdsForStep(step, registry);
+    if (preferred.length > 0) {
+      return {
+        nodeDefinitionIds: preferred,
+        replacementReason: `filled missing definitionId(s) for \`${step.summary}\` from constrained registry candidates`,
+      };
+    }
+  }
+
+  return { nodeDefinitionIds: step.nodeDefinitionIds };
+}
+
+function getGraphOutputKinds(
+  graph: GraphIR | undefined,
+  registry: NormalizedRegistrySnapshot,
+): Set<ValueKind> {
+  const nodeSpecByDefinitionId = new Map(
+    registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
+  );
+  const kinds = new Set<ValueKind>();
+
+  for (const node of graph?.nodes || []) {
+    const nodeSpec = nodeSpecByDefinitionId.get(node.definitionId);
+    for (const port of nodeSpec?.ports || []) {
+      if (port.direction === "output") {
+        kinds.add(port.kind);
+      }
+    }
+  }
+
+  return kinds;
+}
+
+export function buildGraphNodeTableForLLM(
+  graph: GraphIR | undefined,
+  registry: NormalizedRegistrySnapshot,
+): string {
+  if (!graph || graph.nodes.length === 0) {
+    return "- (no nodes yet)";
+  }
+
+  const nodeSpecByDefinitionId = new Map(
+    registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
+  );
+
+  return graph.nodes.map((node) => {
+    const nodeSpec = nodeSpecByDefinitionId.get(node.definitionId);
+    const outputPorts = nodeSpec?.ports
+      .filter((port) => port.direction === "output")
+      .map((port) => `${port.key}:${port.kind}`)
+      .join(", ") || "none";
+    const inputPorts = nodeSpec?.ports
+      .filter((port) => port.direction === "input")
+      .map((port) => `${port.key}:${port.kind}${port.required ? "*" : ""}`)
+      .join(", ") || "none";
+
+    return `- ${node.nodeId} | ${node.definitionId} | ${node.displayName} | inputs=${inputPorts} | outputs=${outputPorts}`;
+  }).join("\n");
+}
+
+interface RegistryCandidateCatalogEntry {
+  definitionId: string;
+  displayName: string;
+  nodeType: string;
+  reason: string;
+}
+
+function buildConstrainedRegistryCandidateEntriesForState(
+  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  registry: NormalizedRegistrySnapshot,
+): RegistryCandidateCatalogEntry[] {
+  const nodeSpecByDefinitionId = new Map(
+    registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
+  );
+  const entries = new Map<string, RegistryCandidateCatalogEntry>();
+  const pushEntry = (definitionId: string, reason: string) => {
+    const nodeSpec = nodeSpecByDefinitionId.get(definitionId);
+    if (!nodeSpec) {
+      return;
+    }
+
+    const existing = entries.get(definitionId);
+    if (existing) {
+      if (!existing.reason.includes(reason)) {
+        existing.reason = `${existing.reason}; ${reason}`;
+      }
+      return;
+    }
+
+    entries.set(definitionId, {
+      definitionId,
+      displayName: nodeSpec.displayName,
+      nodeType: nodeSpec.nodeType,
+      reason,
+    });
+  };
+
+  const remainingSteps = getRemainingPlannedSteps(state);
+  const availableKinds = getGraphOutputKinds(state.workingGraph, registry);
+
+  for (const step of remainingSteps) {
+    const constrainedStep = constrainPlanStepDefinitionIds(step, registry);
+    const candidateIds = constrainedStep.nodeDefinitionIds.length > 0
+      ? constrainedStep.nodeDefinitionIds
+      : getPreferredDefinitionIdsForStep(step, registry);
+
+    for (const definitionId of candidateIds) {
+      pushEntry(definitionId, `planned step ${step.stepId}`);
+    }
+  }
+
+  if (remainingSteps.some((step) => stepLooksLikeUpscale(step)) && availableKinds.has("file") && !availableKinds.has("image")) {
+    for (const definitionId of rankNodeSpecIds(
+      registry,
+      isFileToImageBridgeNodeSpec,
+      (nodeSpec) => {
+        let score = 0;
+        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
+        if (text.includes("blur")) score += 3;
+        if (text.includes("extract")) score += 1;
+        return score;
+      },
+    ).slice(0, 2)) {
+      pushEntry(definitionId, "bridge file -> image");
+    }
+  }
+
+  if (remainingSteps.some((step) => stepLooksLikeExport(step))) {
+    for (const definitionId of rankNodeSpecIds(
+      registry,
+      isImageToFileExporterNodeSpec,
+      (nodeSpec) => {
+        let score = 0;
+        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
+        if (text.includes("export")) score += 4;
+        if (text.includes("file")) score += 2;
+        if (text.includes("psd")) score += 1;
+        return score;
+      },
+    ).slice(0, 2)) {
+      pushEntry(definitionId, "bridge image -> file");
+    }
+  }
+
+  return Array.from(entries.values());
+}
+
+export function buildConstrainedRegistryDefinitionCatalogForLLM(
+  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  registry: NormalizedRegistrySnapshot,
+): string {
+  const entries = buildConstrainedRegistryCandidateEntriesForState(state, registry);
+  if (entries.length === 0) {
+    return buildRegistryDefinitionCatalogForLLM(registry);
+  }
+
+  return entries
+    .map((entry) => `- ${entry.definitionId} | ${entry.displayName} | ${entry.nodeType} | reason=${entry.reason}`)
+    .join("\n");
+}
+
+function getAllowedCandidateDefinitionIdsForState(
+  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  registry: NormalizedRegistrySnapshot,
+): Set<string> {
+  return new Set(
+    buildConstrainedRegistryCandidateEntriesForState(state, registry).map((entry) => entry.definitionId),
+  );
 }
 
 export function getRemainingPlannedSteps(
@@ -559,7 +903,8 @@ export function buildDraftPrompt(
   registry: NormalizedRegistrySnapshot,
 ): string {
   const registrySummary = JSON.stringify(summarizeRegistryForLLM(registry), null, 2);
-  const registryCatalog = buildRegistryDefinitionCatalogForLLM(registry);
+  const registryCatalog = buildConstrainedRegistryDefinitionCatalogForLLM(state, registry);
+  const graphNodeTable = buildGraphNodeTableForLLM(state.workingGraph, registry);
 
   return [
     `User request: ${state.userRequest}`,
@@ -568,12 +913,17 @@ export function buildDraftPrompt(
     "",
     `Working graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
     "",
+    "## Graph Nodes Available For Wiring (use nodeId, not definitionId)",
+    "```text",
+    graphNodeTable,
+    "```",
+    "",
     "## Registry Overview",
     "```json",
     registrySummary,
     "```",
     "",
-    "## Available Node Definitions (copy definitionId exactly)",
+    "## Constrained Candidate Node Definitions (copy definitionId exactly)",
     "```text",
     registryCatalog,
     "```",
@@ -582,16 +932,20 @@ export function buildDraftPrompt(
     "Only propose tool calls that can be executed by the atomic tool layer.",
     "",
     "IMPORTANT: You MUST emit at least one tool call in `proposedToolCalls`. Returning an empty array is treated as a failure. Work from `Plan.steps` and emit one or more `create-node` / `connect-ports` calls that implement the next unbuilt step(s).",
-    "If a plan step has an empty `nodeDefinitionIds` array, choose the best matching node from the available node definitions above and copy its exact `definitionId`.",
+    "Use ONLY the constrained candidate definitionIds above for `create-node`. If a needed step is not represented there, emit bridge nodes from that candidate set before wiring the final step.",
     "Never use a display name, category name, or invented placeholder where a `definitionId` is required.",
     "",
     "## create-node",
     "REQUIRED fields (all three MUST be non-null strings):",
-    "- `definitionId`: MUST be one of the exact definitionId strings from the available node definitions above. Copy it exactly.",
+    "- `definitionId`: MUST be one of the exact definitionId strings from the constrained candidate list above. Copy it exactly.",
     "- `displayName`: MUST be the exact displayName from the registry for that definitionId.",
     "- `params`: array of `{ key, value }` entries matching the node's paramSchema, or empty array `[]` if none.",
     "",
-    "IMPORTANT: If you cannot find a matching definitionId in the registry, do NOT emit create-node. Ask for clarification instead.",
+    "## connect-ports",
+    "REQUIRED fields: `fromNodeId`, `fromPortKey`, `toNodeId`, `toPortKey`.",
+    "`fromNodeId` and `toNodeId` MUST be real graph `nodeId` values from the graph node table above or nodeIds created earlier in the same batch.",
+    "Never use a `definitionId` where a `nodeId` is required.",
+    "If you need to create a node and then wire it, emit `create-node` first and `connect-ports` later in the same batch.",
     "",
     "## set-app-mode-field",
     "PURPOSE: Binds a UI input field to a node's param or input port, exposing it to the end user.",
@@ -650,8 +1004,9 @@ export function buildFinalizeRevisionPrompt(
   state: OrchestratorState,
   registry: NormalizedRegistrySnapshot,
 ): string {
-  const registryCatalog = buildRegistryDefinitionCatalogForLLM(registry);
+  const registryCatalog = buildConstrainedRegistryDefinitionCatalogForLLM(state, registry);
   const remainingSteps = getRemainingPlannedSteps(state);
+  const graphNodeTable = buildGraphNodeTableForLLM(state.workingGraph, registry);
 
   return [
     `User request: ${state.userRequest}`,
@@ -664,16 +1019,27 @@ export function buildFinalizeRevisionPrompt(
     "",
     `Remaining planned steps: ${JSON.stringify(remainingSteps, null, 2)}`,
     "",
-    "## Available Node Definitions (copy definitionId exactly)",
+    "## Graph Nodes Available For Wiring (use nodeId, not definitionId)",
+    "```text",
+    graphNodeTable,
+    "```",
+    "",
+    "## Constrained Candidate Node Definitions (copy definitionId exactly)",
     "```text",
     registryCatalog,
     "```",
     "",
     "## create-node",
     "REQUIRED fields (all MUST be non-null strings):",
-    "- `definitionId`: MUST be one of the exact definitionId strings from the registry above. Copy exactly.",
+    "- `definitionId`: MUST be one of the exact definitionId strings from the constrained candidate list above. Copy exactly.",
     "- `displayName`: MUST be the exact displayName from the registry for that definitionId.",
     "- `params`: array of `{ key, value }` or empty array `[]`.",
+    "",
+    "## connect-ports",
+    "REQUIRED fields: `fromNodeId`, `fromPortKey`, `toNodeId`, `toPortKey`.",
+    "`fromNodeId` and `toNodeId` MUST be real graph `nodeId` values from the graph node table above or nodeIds created earlier in the same batch.",
+    "Never use a `definitionId` where a `nodeId` is required.",
+    "If a missing step has no node yet, create it first and then wire it later in the same batch.",
     "",
     "## set-app-mode-field",
     "PREREQUISITE: Target node MUST already exist in the working graph.",
@@ -681,7 +1047,8 @@ export function buildFinalizeRevisionPrompt(
     "",
     "Propose only the atomic tool calls needed to address the semantic gaps.",
     "Focus on adding nodes and edges for the remaining planned steps above. Do not redesign the workflow or restart from scratch.",
-    "IMPORTANT: Use ONLY definitionIds from the registry above. Never invent IDs.",
+    "If a remaining step needs a missing value kind, first add a bridge node from the constrained candidate list before wiring the final step.",
+    "IMPORTANT: Use ONLY definitionIds from the constrained candidate list above. Never invent IDs.",
     "You MUST emit at least one tool call in `proposedToolCalls`.",
   ].join("\n");
 }
@@ -862,6 +1229,75 @@ export function normalizeLLMToolCalls(
   return { normalized, skipped };
 }
 
+function filterToolCallsForCurrentState(
+  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  registry: NormalizedRegistrySnapshot,
+  batch: NormalizedToolCallBatch,
+): NormalizedToolCallBatch {
+  const allowedDefinitionIds = getAllowedCandidateDefinitionIdsForState(state, registry);
+  const knownDefinitionIds = new Set(
+    registry.nodeSpecs.map((nodeSpec) => nodeSpec.source.definitionId),
+  );
+  const availableNodeIds = new Set((state.workingGraph?.nodes || []).map((node) => node.nodeId));
+  const normalized: OrchestratorToolCall[] = [];
+  const skipped = [...batch.skipped];
+
+  for (const toolCall of batch.normalized) {
+    if (toolCall.toolName === "create-node") {
+      if (!allowedDefinitionIds.has(toolCall.input.definitionId)) {
+        skipped.push({
+          toolName: toolCall.toolName,
+          reason: `DefinitionId \`${toolCall.input.definitionId}\` is outside the constrained candidate set for the current plan state.`,
+          rawInput: toolCall.input,
+        });
+        continue;
+      }
+
+      if (toolCall.input.nodeId) {
+        availableNodeIds.add(toolCall.input.nodeId);
+      }
+      normalized.push(toolCall);
+      continue;
+    }
+
+    if (toolCall.toolName === "connect-ports") {
+      const missingNodeIds = [toolCall.input.fromNodeId, toolCall.input.toNodeId].filter((nodeId) =>
+        !availableNodeIds.has(nodeId)
+      );
+      if (missingNodeIds.length > 0) {
+        const reason = missingNodeIds
+          .map((nodeId) => knownDefinitionIds.has(nodeId)
+            ? `\`${nodeId}\` is a definitionId, not a graph nodeId`
+            : `\`${nodeId}\` is not an existing graph nodeId in this batch`
+          )
+          .join("; ");
+        skipped.push({
+          toolName: toolCall.toolName,
+          reason: `connect-ports must use real nodeIds. ${reason}.`,
+          rawInput: toolCall.input,
+        });
+        continue;
+      }
+    }
+
+    if (toolCall.toolName === "set-app-mode-field") {
+      const nodeId = toolCall.input.field.source.nodeId;
+      if (!availableNodeIds.has(nodeId)) {
+        skipped.push({
+          toolName: toolCall.toolName,
+          reason: `set-app-mode-field references missing graph nodeId \`${nodeId}\`.`,
+          rawInput: toolCall.input,
+        });
+        continue;
+      }
+    }
+
+    normalized.push(toolCall);
+  }
+
+  return { normalized, skipped };
+}
+
 export async function runIntentModel(
   state: OrchestratorState,
   runtime: OrchestratorRuntime,
@@ -908,7 +1344,11 @@ export async function runDraftModel(
     tools: buildPlanningTools(),
     maxSteps: 4,
   });
-  const batch = normalizeLLMToolCalls(result.proposedToolCalls);
+  const batch = filterToolCallsForCurrentState(
+    state,
+    registry,
+    normalizeLLMToolCalls(result.proposedToolCalls),
+  );
   return {
     proposedToolCalls: batch.normalized,
     skippedToolCalls: batch.skipped,
@@ -966,7 +1406,11 @@ export async function runFinalizeRevisionModel(
     tools: buildPlanningTools(),
     maxSteps: 4,
   });
-  const batch = normalizeLLMToolCalls(result.proposedToolCalls);
+  const batch = filterToolCallsForCurrentState(
+    state,
+    registry,
+    normalizeLLMToolCalls(result.proposedToolCalls),
+  );
   return {
     proposedToolCalls: batch.normalized,
     skippedToolCalls: batch.skipped,
