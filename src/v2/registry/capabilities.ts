@@ -1,0 +1,589 @@
+import { CAPABILITY_DOC_OVERRIDES } from "./capability-doc-overrides.ts";
+
+import type {
+  NodeCapabilitySpec,
+  NodeFunctionalRole,
+  NodeDependencyComplexity,
+  NodeBridgeSuitability,
+  NodeSpec,
+  NormalizedRegistrySnapshot,
+  ParamSpec,
+  PortSpec,
+  RegistryCapabilitySnapshot,
+  RegistryNodeCapabilityEntry,
+  ValueKind,
+} from "./types.ts";
+
+interface CapabilityInferenceInput {
+  definitionId: string;
+  nodeType: string;
+  displayName: string;
+  category?: string;
+  subtype?: string;
+  isGenerative: boolean;
+  model?: NodeSpec["model"];
+  ports: PortSpec[];
+  params: ParamSpec[];
+}
+
+export function inferNodeCapabilities(input: CapabilityInferenceInput): NodeCapabilitySpec {
+  const ioProfile = buildIoProfile(input.ports);
+  const hiddenDependencies = inferHiddenDependencies(input, ioProfile.requiredInputKinds);
+  const functionalRole = inferFunctionalRole(input, ioProfile, hiddenDependencies);
+  const dependencyComplexity = inferDependencyComplexity(input, ioProfile, hiddenDependencies, functionalRole);
+  const taskTags = inferTaskTags(input, ioProfile, functionalRole);
+  const bridgeSuitability = inferBridgeSuitability(ioProfile, dependencyComplexity, functionalRole);
+  const planningHints = inferPlanningHints(input, ioProfile, dependencyComplexity, functionalRole, taskTags);
+
+  const base: NodeCapabilitySpec = {
+    functionalRole,
+    taskTags,
+    ioProfile,
+    dependencyComplexity,
+    hiddenDependencies,
+    bridgeSuitability,
+    naturalLanguageDescription: buildNaturalLanguageDescription(input, functionalRole, ioProfile, hiddenDependencies),
+    commonUseCases: buildCommonUseCases(input, taskTags, functionalRole, ioProfile),
+    planningHints,
+  };
+
+  return applyCapabilityDocOverrides(input, base);
+}
+
+export function buildRegistryCapabilitySnapshot(
+  registry: NormalizedRegistrySnapshot,
+): RegistryCapabilitySnapshot {
+  const nodes: RegistryNodeCapabilityEntry[] = registry.nodeSpecs.map((nodeSpec) => ({
+    definitionId: nodeSpec.source.definitionId,
+    displayName: nodeSpec.displayName,
+    nodeType: nodeSpec.nodeType,
+    category: nodeSpec.category,
+    subtype: nodeSpec.subtype,
+    capabilities: nodeSpec.capabilities,
+  }));
+
+  return {
+    syncId: registry.syncId,
+    fetchedAt: registry.fetchedAt,
+    registryVersion: registry.registryVersion,
+    nodeSpecCount: registry.nodeSpecs.length,
+    nodes,
+    indexes: {
+      byFunctionalRole: groupDefinitionIds(nodes, (node) => [node.capabilities.functionalRole]),
+      byIoProfile: groupDefinitionIds(nodes, (node) => [node.capabilities.ioProfile.summary]),
+      byTaskTag: groupDefinitionIds(nodes, (node) => node.capabilities.taskTags),
+      bridgeTransforms: groupDefinitionIds(
+        nodes.filter((node) => node.capabilities.bridgeSuitability !== "none"),
+        (node) => [node.capabilities.ioProfile.summary],
+      ),
+    },
+    reviewBuckets: {
+      unknown: nodes
+        .filter((node) => node.capabilities.functionalRole === "unknown")
+        .map((node) => node.definitionId),
+      ambiguous: nodes
+        .filter((node) => node.capabilities.functionalRole === "utility")
+        .map((node) => node.definitionId),
+      heavyDependency: nodes
+        .filter((node) => node.capabilities.dependencyComplexity === "heavy")
+        .map((node) => node.definitionId),
+    },
+  };
+}
+
+export function renderRegistryCapabilityCatalog(
+  registry: NormalizedRegistrySnapshot,
+): string {
+  const snapshot = buildRegistryCapabilitySnapshot(registry);
+  const lines: string[] = [
+    "# Weavy Capability Catalog",
+    "",
+    `- Registry version: ${registry.registryVersion}`,
+    `- Sync ID: ${registry.syncId}`,
+    `- Node count: ${registry.nodeSpecs.length}`,
+    `- Warnings: ${registry.warnings.length}`,
+    "",
+    "## Review Buckets",
+    `- Unknown: ${snapshot.reviewBuckets.unknown.length}`,
+    `- Ambiguous: ${snapshot.reviewBuckets.ambiguous.length}`,
+    `- Heavy dependency: ${snapshot.reviewBuckets.heavyDependency.length}`,
+    "",
+    "## Functional Roles",
+  ];
+
+  for (const [role, nodes] of sortEntries(groupNodeSpecsBy(registry.nodeSpecs, (node) => node.capabilities.functionalRole))) {
+    lines.push(`### ${role}`);
+    for (const node of sortNodeSpecs(nodes)) {
+      lines.push(renderNodeCatalogLine(node));
+    }
+    lines.push("");
+  }
+
+  lines.push("## Transform Profiles");
+  for (const [ioProfile, nodes] of sortEntries(groupNodeSpecsBy(registry.nodeSpecs, (node) => node.capabilities.ioProfile.summary))) {
+    lines.push(`### ${ioProfile}`);
+    for (const node of sortNodeSpecs(nodes)) {
+      lines.push(renderNodeCatalogLine(node));
+    }
+    lines.push("");
+  }
+
+  return `${lines.join("\n").trim()}\n`;
+}
+
+export function buildRegistryDefinitionCatalogForLLM(
+  registry: NormalizedRegistrySnapshot,
+  options: { definitionIds?: Iterable<string> } = {},
+): string {
+  const filter = options.definitionIds ? new Set(options.definitionIds) : null;
+
+  return sortNodeSpecs(
+    registry.nodeSpecs.filter((nodeSpec) => !filter || filter.has(nodeSpec.source.definitionId)),
+  )
+    .map((nodeSpec) => {
+      const capabilities = nodeSpec.capabilities;
+      return [
+        "-",
+        nodeSpec.source.definitionId,
+        "|",
+        nodeSpec.displayName,
+        "|",
+        nodeSpec.nodeType,
+        "|",
+        `role=${capabilities.functionalRole}`,
+        "|",
+        `io=${capabilities.ioProfile.summary}`,
+        "|",
+        `complexity=${capabilities.dependencyComplexity}`,
+        "|",
+        `tags=${capabilities.taskTags.join(",")}`,
+      ].join(" ");
+    })
+    .join("\n");
+}
+
+export function getPreferredDefinitionIdsForStep(
+  step: { summary: string; expectedOutputs: string[] },
+  registry: NormalizedRegistrySnapshot,
+  options: { availableKinds?: Iterable<ValueKind> } = {},
+): string[] {
+  const availableKinds = new Set(options.availableKinds || []);
+  const text = getStepIntentText(step);
+
+  if (looksLikeExport(text)) {
+    const preferImageToFile = availableKinds.has("image") || /image/.test(text);
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) => {
+        if (preferImageToFile) {
+          return node.capabilities.ioProfile.summary === "image -> file";
+        }
+        return node.capabilities.functionalRole === "export" && node.capabilities.ioProfile.outputKinds.includes("file");
+      }),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_for_image_to_file_export")) score += 5;
+        if (node.capabilities.functionalRole === "export") score += 3;
+        if (node.capabilities.dependencyComplexity === "simple") score += 2;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  if (looksLikeUpscale(text)) {
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("image-upscale")),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_for_simple_image_upscale")) score += 6;
+        if (node.capabilities.ioProfile.summary === "image -> image") score += 4;
+        if (node.capabilities.dependencyComplexity === "simple") score += 3;
+        if (node.capabilities.dependencyComplexity === "heavy") score -= 10;
+        if (availableKinds.has("image")) score += 2;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  if (looksLikeUpload(text)) {
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) => node.capabilities.planningHints.includes("prefer_for_file_import")),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.ioProfile.summary === "none -> file") score += 4;
+        if (node.capabilities.taskTags.includes("image-upload")) score += 2;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  return [];
+}
+
+export function getBridgeDefinitionIdsForKinds(
+  registry: NormalizedRegistrySnapshot,
+  fromKind: ValueKind,
+  toKind: ValueKind,
+  limit = 2,
+): string[] {
+  const profile = `${fromKind} -> ${toKind}`;
+  return rankNodeSpecs(
+    registry.nodeSpecs.filter((node) => node.capabilities.ioProfile.summary === profile),
+    (node) => {
+      let score = 0;
+      if (node.capabilities.bridgeSuitability === "primary") score += 5;
+      if (node.capabilities.dependencyComplexity === "simple") score += 3;
+      if (node.capabilities.planningHints.includes(`prefer_for_${fromKind}_to_${toKind}_bridge`)) score += 2;
+      return score;
+    },
+  ).slice(0, limit);
+}
+
+function applyCapabilityDocOverrides(
+  input: CapabilityInferenceInput,
+  base: NodeCapabilitySpec,
+): NodeCapabilitySpec {
+  const matches = CAPABILITY_DOC_OVERRIDES.filter((override) => matchesOverride(input, override.match));
+  if (matches.length === 0) {
+    return base;
+  }
+
+  return matches.reduce<NodeCapabilitySpec>((current, override) => ({
+    ...current,
+    ...override.capabilities,
+    ioProfile: override.capabilities.ioProfile || current.ioProfile,
+    taskTags: dedupeStrings([...(current.taskTags || []), ...(override.capabilities.taskTags || [])]),
+    hiddenDependencies: dedupeStrings([
+      ...(current.hiddenDependencies || []),
+      ...(override.capabilities.hiddenDependencies || []),
+    ]),
+    commonUseCases: dedupeStrings([
+      ...(override.capabilities.commonUseCases || current.commonUseCases),
+    ]).slice(0, 3),
+    planningHints: dedupeStrings([...(current.planningHints || []), ...(override.capabilities.planningHints || [])]),
+  }), base);
+}
+
+function matchesOverride(
+  input: CapabilityInferenceInput,
+  match: { definitionIds?: string[]; displayNames?: string[]; modelNamePrefixes?: string[] },
+): boolean {
+  if (match.definitionIds?.includes(input.definitionId)) {
+    return true;
+  }
+
+  if (match.displayNames?.includes(input.displayName)) {
+    return true;
+  }
+
+  const modelName = input.model?.name || "";
+  if (modelName && match.modelNamePrefixes?.some((prefix) => modelName.startsWith(prefix))) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildIoProfile(ports: PortSpec[]): NodeCapabilitySpec["ioProfile"] {
+  const requiredInputKinds = dedupeKinds(
+    ports.filter((port) => port.direction === "input" && port.required).map((port) => port.kind),
+  );
+  const outputKinds = dedupeKinds(
+    ports.filter((port) => port.direction === "output").map((port) => port.kind),
+  );
+
+  return {
+    summary: `${formatKinds(requiredInputKinds)} -> ${formatKinds(outputKinds)}`,
+    requiredInputKinds,
+    outputKinds,
+  };
+}
+
+function inferFunctionalRole(
+  input: CapabilityInferenceInput,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+  hiddenDependencies: string[],
+): NodeFunctionalRole {
+  const text = getSearchText(input);
+  const hasRequiredInputs = ioProfile.requiredInputKinds.length > 0;
+  const hasOutputs = ioProfile.outputKinds.length > 0;
+
+  if (/ui|field|binding|app mode/.test(text)) {
+    return "ui-binding";
+  }
+
+  if (/export|save|download|writer?/.test(text)) {
+    return "export";
+  }
+
+  if (!hasRequiredInputs && hasOutputs && (ioProfile.outputKinds.includes("file") || ioProfile.outputKinds.includes("image"))) {
+    return "import";
+  }
+
+  if (ioProfile.requiredInputKinds.length > 0 && ioProfile.outputKinds.length > 0) {
+    if (ioProfile.summary === "file -> image" || ioProfile.summary === "image -> file") {
+      return "bridge";
+    }
+    if (/model/.test(text) && hiddenDependencies.length > 0) {
+      return "model-provider";
+    }
+    if (/detect|segment|caption|analy|describe|extract/.test(text)) {
+      return "analyze";
+    }
+    return input.isGenerative ? "generate" : "transform";
+  }
+
+  if (hiddenDependencies.length > 0 || input.params.length > 0) {
+    return "utility";
+  }
+
+  return "unknown";
+}
+
+function inferTaskTags(
+  input: CapabilityInferenceInput,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+  functionalRole: NodeFunctionalRole,
+): string[] {
+  const text = getSearchText(input);
+  const tags = new Set<string>();
+
+  if (functionalRole === "import" && ioProfile.outputKinds.includes("file")) tags.add("file-import");
+  if (functionalRole === "import" && /image/.test(text)) tags.add("image-upload");
+  if (ioProfile.summary === "file -> image") tags.add("file-to-image");
+  if (ioProfile.summary === "image -> file") tags.add("image-to-file");
+  if (/upscale|esrgan/.test(text)) tags.add("image-upscale");
+  if (/edit/.test(text) && ioProfile.outputKinds.includes("image")) tags.add("image-edit");
+  if (/export/.test(text) && ioProfile.outputKinds.includes("file")) tags.add("file-export");
+  if (/video/.test(text) && /export/.test(text)) tags.add("video-export");
+  if (/blur/.test(text)) tags.add("image-blur");
+  if (functionalRole === "transform" && ioProfile.outputKinds.includes("image")) tags.add("image-transform");
+  if (tags.size === 0) tags.add(`${functionalRole}-${ioProfile.summary.replace(/\s+/g, "-")}`);
+
+  return Array.from(tags);
+}
+
+function inferHiddenDependencies(
+  input: CapabilityInferenceInput,
+  requiredInputKinds: ValueKind[],
+): string[] {
+  const text = getSearchText(input);
+  const genericKeys = new Set(["image", "file", "text", "prompt", "input", "result", "output", "video", "audio"]);
+
+  return [
+    ...input.ports.filter((port) => port.direction === "input" && port.required).map((port) => port.key),
+    ...input.params.filter((param) => param.required).map((param) => param.key),
+  ].filter((key) => {
+    const normalized = normalizeToken(key);
+    if (!normalized || genericKeys.has(normalized)) {
+      return false;
+    }
+    if (requiredInputKinds.length === 1 && requiredInputKinds[0] === "text" && normalized === "prompt") {
+      return false;
+    }
+    return !text.includes(normalized);
+  });
+}
+
+function inferDependencyComplexity(
+  input: CapabilityInferenceInput,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+  hiddenDependencies: string[],
+  functionalRole: NodeFunctionalRole,
+): NodeDependencyComplexity {
+  const requiredPortCount = input.ports.filter((port) => port.direction === "input" && port.required).length;
+  const requiredParamCount = input.params.filter((param) => param.required).length;
+
+  if (hiddenDependencies.length > 0 || requiredPortCount > 1 || requiredParamCount > 1 || functionalRole === "model-provider") {
+    return "heavy";
+  }
+  if (requiredPortCount > 0 || requiredParamCount > 0 || ioProfile.outputKinds.length > 1 || input.model?.name) {
+    return "moderate";
+  }
+  return "simple";
+}
+
+function inferBridgeSuitability(
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+  dependencyComplexity: NodeDependencyComplexity,
+  functionalRole: NodeFunctionalRole,
+): NodeBridgeSuitability {
+  if (ioProfile.summary === "file -> image" || ioProfile.summary === "image -> file") {
+    return dependencyComplexity === "simple" ? "primary" : "secondary";
+  }
+  if (functionalRole === "bridge" && dependencyComplexity !== "heavy") {
+    return "secondary";
+  }
+  return "none";
+}
+
+function inferPlanningHints(
+  input: CapabilityInferenceInput,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+  dependencyComplexity: NodeDependencyComplexity,
+  functionalRole: NodeFunctionalRole,
+  taskTags: string[],
+): string[] {
+  const hints = new Set<string>();
+
+  if (taskTags.includes("file-import")) hints.add("prefer_for_file_import");
+  if (taskTags.includes("image-upscale") && ioProfile.summary === "image -> image" && dependencyComplexity === "simple") {
+    hints.add("prefer_for_simple_image_upscale");
+  }
+  if (taskTags.includes("file-to-image") && dependencyComplexity === "simple") {
+    hints.add("prefer_for_file_to_image_bridge");
+    hints.add("prefer_for_file_to_image_bridge");
+    hints.add("requires_existing_file_input");
+  }
+  if (taskTags.includes("image-to-file")) hints.add("prefer_for_image_to_file_export");
+  if (dependencyComplexity === "heavy" && input.model?.name) hints.add("avoid_without_model_source");
+  if (functionalRole === "export") hints.add("prefer_near_workflow_end");
+  if (taskTags.includes("image-edit")) hints.add("requires_text_prompt");
+
+  return Array.from(hints);
+}
+
+function buildNaturalLanguageDescription(
+  input: CapabilityInferenceInput,
+  functionalRole: NodeFunctionalRole,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+  hiddenDependencies: string[],
+): string {
+  const roleText: Record<NodeFunctionalRole, string> = {
+    import: "imports external input into the graph",
+    transform: "transforms incoming graph data",
+    generate: "generates new output data",
+    analyze: "analyzes incoming data",
+    export: "exports graph output into a final artifact",
+    utility: "performs a utility action inside the workflow",
+    bridge: "bridges one value kind into another for later nodes",
+    "model-provider": "provides model data to other nodes",
+    "ui-binding": "binds graph values for end-user interaction",
+    unknown: "has unclear workflow behavior",
+  };
+
+  const dependencySuffix = hiddenDependencies.length > 0
+    ? ` Hidden dependencies: ${hiddenDependencies.join(", ")}.`
+    : "";
+
+  return `${input.displayName} ${roleText[functionalRole]} with transform ${ioProfile.summary}.${dependencySuffix}`.trim();
+}
+
+function buildCommonUseCases(
+  input: CapabilityInferenceInput,
+  taskTags: string[],
+  functionalRole: NodeFunctionalRole,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+): string[] {
+  const useCases = new Set<string>();
+
+  if (taskTags.includes("file-import")) useCases.add("Bring a file into the workflow");
+  if (taskTags.includes("image-upscale")) useCases.add("Upscale an image before export");
+  if (taskTags.includes("file-to-image")) useCases.add("Convert a file input into image data");
+  if (taskTags.includes("image-to-file")) useCases.add("Convert image output into a file artifact");
+  if (taskTags.includes("image-edit")) useCases.add("Apply prompt-guided edits to an image");
+  if (functionalRole === "export") useCases.add("Finalize workflow output for download or delivery");
+  if (useCases.size === 0) useCases.add(`Use ${input.displayName} for ${ioProfile.summary} workflow steps`);
+
+  return Array.from(useCases).slice(0, 3);
+}
+
+function groupDefinitionIds(
+  nodes: RegistryNodeCapabilityEntry[],
+  keysForNode: (node: RegistryNodeCapabilityEntry) => string[],
+): Record<string, string[]> {
+  const grouped = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    for (const key of keysForNode(node)) {
+      const bucket = grouped.get(key) || [];
+      bucket.push(node.definitionId);
+      grouped.set(key, bucket);
+    }
+  }
+
+  return Object.fromEntries(
+    Array.from(grouped.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, values]) => [key, values.sort()]),
+  );
+}
+
+function groupNodeSpecsBy(
+  nodeSpecs: NodeSpec[],
+  keyForNode: (nodeSpec: NodeSpec) => string,
+): Map<string, NodeSpec[]> {
+  const grouped = new Map<string, NodeSpec[]>();
+  for (const nodeSpec of nodeSpecs) {
+    const key = keyForNode(nodeSpec);
+    const bucket = grouped.get(key) || [];
+    bucket.push(nodeSpec);
+    grouped.set(key, bucket);
+  }
+  return grouped;
+}
+
+function sortEntries<V>(map: Map<string, V>): Array<[string, V]> {
+  return Array.from(map.entries()).sort(([left], [right]) => left.localeCompare(right));
+}
+
+function sortNodeSpecs(nodeSpecs: NodeSpec[]): NodeSpec[] {
+  return [...nodeSpecs].sort((left, right) => {
+    return left.displayName.localeCompare(right.displayName) || left.source.definitionId.localeCompare(right.source.definitionId);
+  });
+}
+
+function renderNodeCatalogLine(node: NodeSpec): string {
+  const { capabilities } = node;
+  const hidden = capabilities.hiddenDependencies.length > 0
+    ? ` hidden=${capabilities.hiddenDependencies.join(",")}`
+    : "";
+  const hints = capabilities.planningHints.length > 0
+    ? ` hints=${capabilities.planningHints.join(",")}`
+    : "";
+
+  return `- ${node.source.definitionId} | ${node.displayName} | io=${capabilities.ioProfile.summary} | complexity=${capabilities.dependencyComplexity} | tags=${capabilities.taskTags.join(", ")}${hidden}${hints}`;
+}
+
+function rankNodeSpecs(nodeSpecs: NodeSpec[], score: (nodeSpec: NodeSpec) => number): string[] {
+  return sortNodeSpecs(nodeSpecs)
+    .sort((left, right) => score(right) - score(left))
+    .map((nodeSpec) => nodeSpec.source.definitionId);
+}
+
+function getStepIntentText(step: { summary: string; expectedOutputs: string[] }): string {
+  return normalizeToken(`${step.summary} ${step.expectedOutputs.join(" ")}`);
+}
+
+function looksLikeUpload(text: string): boolean {
+  return /upload|import/.test(text);
+}
+
+function looksLikeUpscale(text: string): boolean {
+  return /\bupscale\b|\bupscaling\b/.test(text);
+}
+
+function looksLikeExport(text: string): boolean {
+  return /export|save|download/.test(text);
+}
+
+function getSearchText(input: CapabilityInferenceInput): string {
+  return normalizeToken([input.displayName, input.nodeType, input.category, input.subtype, input.model?.name]
+    .filter(Boolean)
+    .join(" "));
+}
+
+function normalizeToken(value: string): string {
+  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function formatKinds(kinds: ValueKind[]): string {
+  return kinds.length === 0 ? "none" : kinds.join("+");
+}
+
+function dedupeKinds(kinds: ValueKind[]): ValueKind[] {
+  return Array.from(new Set(kinds));
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)));
+}

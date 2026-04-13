@@ -6,6 +6,11 @@ import { z } from "zod";
 
 import { createEmptyGraphIR } from "../../graph/builders.ts";
 import type { GraphIR } from "../../graph/types.ts";
+import {
+  buildRegistryDefinitionCatalogForLLM as buildCapabilityDefinitionCatalogForLLM,
+  getBridgeDefinitionIdsForKinds,
+  getPreferredDefinitionIdsForStep as getCapabilityPreferredDefinitionIdsForStep,
+} from "../../registry/capabilities.ts";
 import { readLatestNormalizedRegistrySnapshot } from "../../registry/store.ts";
 import type { NormalizedRegistrySnapshot, NodeSpec, PortSpec, ValueKind } from "../../registry/types.ts";
 import {
@@ -158,25 +163,7 @@ export function summarizeRegistryForLLM(
 export function buildRegistryDefinitionCatalogForLLM(
   registry: NormalizedRegistrySnapshot,
 ): string {
-  return registry.nodeSpecs
-    .map((nodeSpec) => {
-      const parts = [
-        nodeSpec.source.definitionId,
-        nodeSpec.displayName,
-        nodeSpec.nodeType,
-      ];
-
-      if (nodeSpec.category) {
-        parts.push(`category=${nodeSpec.category}`);
-      }
-
-      if (nodeSpec.subtype) {
-        parts.push(`subtype=${nodeSpec.subtype}`);
-      }
-
-      return `- ${parts.join(" | ")}`;
-    })
-    .join("\n");
+  return buildCapabilityDefinitionCatalogForLLM(registry);
 }
 
 function getRequiredInputPorts(nodeSpec: NodeSpec): PortSpec[] {
@@ -262,74 +249,15 @@ function rankNodeSpecIds(
 export function getPreferredDefinitionIdsForStep(
   step: { summary: string; expectedOutputs: string[] },
   registry: NormalizedRegistrySnapshot,
+  options: { availableKinds?: Iterable<ValueKind> } = {},
 ): string[] {
-  if (stepLooksLikeUpscale(step)) {
-    return rankNodeSpecIds(
-      registry,
-      isImageOnlyUpscalerNodeSpec,
-      (nodeSpec) => {
-        let score = 0;
-        const text = nodeSpec.displayName.toLowerCase();
-        if (text.includes("real-esrgan")) score += 6;
-        if (text.includes("upscale")) score += 3;
-        if (nodeSpec.nodeType === "custommodelV2") score += 1;
-        return score;
-      },
-    ).slice(0, 1);
-  }
-
-  if (stepLooksLikeExport(step)) {
-    const imageToFile = rankNodeSpecIds(
-      registry,
-      isImageToFileExporterNodeSpec,
-      (nodeSpec) => {
-        let score = 0;
-        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
-        if (text.includes("export")) score += 4;
-        if (text.includes("file")) score += 2;
-        if (text.includes("psd")) score += 1;
-        return score;
-      },
-    ).slice(0, 1);
-
-    if (imageToFile.length > 0) {
-      return imageToFile;
-    }
-
-    return rankNodeSpecIds(
-      registry,
-      isFileExportNodeSpec,
-      (nodeSpec) => {
-        let score = 0;
-        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
-        if (text.includes("export")) score += 4;
-        if (nodeSpec.ports.some((port) => port.direction === "input" && port.kind === "file" && !port.required)) score += 1;
-        return score;
-      },
-    ).slice(0, 1);
-  }
-
-  if (stepLooksLikeUpload(step)) {
-    return rankNodeSpecIds(
-      registry,
-      isUploadSourceNodeSpec,
-      (nodeSpec) => {
-        let score = 0;
-        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
-        if (text.includes("import")) score += 4;
-        if (text.includes("file")) score += 3;
-        if (nodeSpec.nodeType === "import") score += 2;
-        return score;
-      },
-    ).slice(0, 1);
-  }
-
-  return [];
+  return getCapabilityPreferredDefinitionIdsForStep(step, registry, options);
 }
 
 export function constrainPlanStepDefinitionIds(
   step: { summary: string; expectedOutputs: string[]; nodeDefinitionIds: string[] },
   registry: NormalizedRegistrySnapshot,
+  options: { availableKinds?: Iterable<ValueKind> } = {},
 ): { nodeDefinitionIds: string[]; replacementReason?: string } {
   const nodeSpecByDefinitionId = new Map(
     registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
@@ -343,7 +271,7 @@ export function constrainPlanStepDefinitionIds(
       return { nodeDefinitionIds: step.nodeDefinitionIds };
     }
 
-    const preferred = getPreferredDefinitionIdsForStep(step, registry);
+    const preferred = getPreferredDefinitionIdsForStep(step, registry, options);
     if (preferred.length > 0) {
       return {
         nodeDefinitionIds: preferred,
@@ -357,7 +285,7 @@ export function constrainPlanStepDefinitionIds(
       return { nodeDefinitionIds: step.nodeDefinitionIds };
     }
 
-    const preferred = getPreferredDefinitionIdsForStep(step, registry);
+    const preferred = getPreferredDefinitionIdsForStep(step, registry, options);
     if (preferred.length > 0) {
       return {
         nodeDefinitionIds: preferred,
@@ -367,7 +295,7 @@ export function constrainPlanStepDefinitionIds(
   }
 
   if (step.nodeDefinitionIds.length === 0) {
-    const preferred = getPreferredDefinitionIdsForStep(step, registry);
+    const preferred = getPreferredDefinitionIdsForStep(step, registry, options);
     if (preferred.length > 0) {
       return {
         nodeDefinitionIds: preferred,
@@ -468,10 +396,12 @@ function buildConstrainedRegistryCandidateEntriesForState(
   const availableKinds = getGraphOutputKinds(state.workingGraph, registry);
 
   for (const step of remainingSteps) {
-    const constrainedStep = constrainPlanStepDefinitionIds(step, registry);
+    const constrainedStep = constrainPlanStepDefinitionIds(step, registry, {
+      availableKinds,
+    });
     const candidateIds = constrainedStep.nodeDefinitionIds.length > 0
       ? constrainedStep.nodeDefinitionIds
-      : getPreferredDefinitionIdsForStep(step, registry);
+      : getPreferredDefinitionIdsForStep(step, registry, { availableKinds });
 
     for (const definitionId of candidateIds) {
       pushEntry(definitionId, `planned step ${step.stepId}`);
@@ -479,34 +409,13 @@ function buildConstrainedRegistryCandidateEntriesForState(
   }
 
   if (remainingSteps.some((step) => stepLooksLikeUpscale(step)) && availableKinds.has("file") && !availableKinds.has("image")) {
-    for (const definitionId of rankNodeSpecIds(
-      registry,
-      isFileToImageBridgeNodeSpec,
-      (nodeSpec) => {
-        let score = 0;
-        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
-        if (text.includes("blur")) score += 3;
-        if (text.includes("extract")) score += 1;
-        return score;
-      },
-    ).slice(0, 2)) {
+    for (const definitionId of getBridgeDefinitionIdsForKinds(registry, "file", "image", 2)) {
       pushEntry(definitionId, "bridge file -> image");
     }
   }
 
   if (remainingSteps.some((step) => stepLooksLikeExport(step))) {
-    for (const definitionId of rankNodeSpecIds(
-      registry,
-      isImageToFileExporterNodeSpec,
-      (nodeSpec) => {
-        let score = 0;
-        const text = `${nodeSpec.displayName} ${nodeSpec.nodeType}`.toLowerCase();
-        if (text.includes("export")) score += 4;
-        if (text.includes("file")) score += 2;
-        if (text.includes("psd")) score += 1;
-        return score;
-      },
-    ).slice(0, 2)) {
+    for (const definitionId of getBridgeDefinitionIdsForKinds(registry, "image", "file", 2)) {
       pushEntry(definitionId, "bridge image -> file");
     }
   }
@@ -523,8 +432,15 @@ export function buildConstrainedRegistryDefinitionCatalogForLLM(
     return buildRegistryDefinitionCatalogForLLM(registry);
   }
 
-  return entries
-    .map((entry) => `- ${entry.definitionId} | ${entry.displayName} | ${entry.nodeType} | reason=${entry.reason}`)
+  return buildCapabilityDefinitionCatalogForLLM(registry, {
+    definitionIds: entries.map((entry) => entry.definitionId),
+  })
+    .split("\n")
+    .map((line) => {
+      const definitionId = line.split(" ")[1];
+      const entry = entries.find((candidate) => candidate.definitionId === definitionId);
+      return entry ? line + ` | reason=${entry.reason}` : line;
+    })
     .join("\n");
 }
 

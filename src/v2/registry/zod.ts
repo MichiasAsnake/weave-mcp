@@ -20,6 +20,22 @@ export const ValueKindSchema = z.enum([
   "unknown",
 ]);
 
+export const NodeFunctionalRoleSchema = z.enum([
+  "import",
+  "transform",
+  "generate",
+  "analyze",
+  "export",
+  "utility",
+  "bridge",
+  "model-provider",
+  "ui-binding",
+  "unknown",
+]);
+
+export const NodeDependencyComplexitySchema = z.enum(["simple", "moderate", "heavy"]);
+export const NodeBridgeSuitabilitySchema = z.enum(["none", "secondary", "primary"]);
+
 export const ParamUiSpecSchema = z.object({
   control: z
     .enum(["textbox", "textarea", "slider", "toggle", "select", "file"])
@@ -80,6 +96,24 @@ export const NodeAppModeSpecSchema = z.object({
   exposablePorts: z.array(z.string()),
 });
 
+export const NodeIoProfileSchema = z.object({
+  summary: z.string(),
+  requiredInputKinds: z.array(ValueKindSchema),
+  outputKinds: z.array(ValueKindSchema),
+});
+
+export const NodeCapabilitySpecSchema = z.object({
+  functionalRole: NodeFunctionalRoleSchema,
+  taskTags: z.array(z.string()),
+  ioProfile: NodeIoProfileSchema,
+  dependencyComplexity: NodeDependencyComplexitySchema,
+  hiddenDependencies: z.array(z.string()),
+  bridgeSuitability: NodeBridgeSuitabilitySchema,
+  naturalLanguageDescription: z.string(),
+  commonUseCases: z.array(z.string()),
+  planningHints: z.array(z.string()),
+});
+
 export const NodeSpecSourceSchema = z.object({
   definitionId: z.string(),
   fetchedAt: z.string(),
@@ -102,6 +136,7 @@ export const NodeSpecSchema = z.object({
   params: z.array(ParamSpecSchema),
   compatibility: NodeCompatibilitySpecSchema,
   appMode: NodeAppModeSpecSchema,
+  capabilities: NodeCapabilitySpecSchema,
   raw: z.unknown().optional(),
 });
 
@@ -131,6 +166,34 @@ export const RawRegistrySnapshotSchema = z.object({
   }),
 });
 
+export const RegistryNodeCapabilityEntrySchema = z.object({
+  definitionId: z.string(),
+  displayName: z.string(),
+  nodeType: z.string(),
+  category: z.string().optional(),
+  subtype: z.string().optional(),
+  capabilities: NodeCapabilitySpecSchema,
+});
+
+export const RegistryCapabilitySnapshotSchema = z.object({
+  syncId: z.string(),
+  fetchedAt: z.string(),
+  registryVersion: z.string(),
+  nodeSpecCount: z.number().int().nonnegative(),
+  nodes: z.array(RegistryNodeCapabilityEntrySchema),
+  indexes: z.object({
+    byFunctionalRole: z.record(z.string(), z.array(z.string())),
+    byIoProfile: z.record(z.string(), z.array(z.string())),
+    byTaskTag: z.record(z.string(), z.array(z.string())),
+    bridgeTransforms: z.record(z.string(), z.array(z.string())),
+  }),
+  reviewBuckets: z.object({
+    unknown: z.array(z.string()),
+    ambiguous: z.array(z.string()),
+    heavyDependency: z.array(z.string()),
+  }),
+});
+
 export const NormalizedRegistrySnapshotSchema = z.object({
   syncId: z.string(),
   fetchedAt: z.string(),
@@ -150,6 +213,8 @@ export const LatestRegistryPointerSchema = z.object({
   authSource: z.string(),
   rawSnapshotPath: z.string(),
   normalizedSnapshotPath: z.string(),
+  capabilitySnapshotPath: z.string().optional(),
+  capabilityCatalogPath: z.string().optional(),
   nodeSpecCount: z.number().int().nonnegative(),
   warningCount: z.number().int().nonnegative(),
 });

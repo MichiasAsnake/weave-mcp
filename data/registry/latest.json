@@ -4,8 +4,10 @@
   "registryVersion": "0.1.0",
   "apiBaseUrl": "https://api.weavy.ai/api",
   "authSource": "env",
-  "rawSnapshotPath": "/Users/purplesprite/Desktop/workflow/data/registry/raw/2026-04-12T15-18-10-043Z.json",
-  "normalizedSnapshotPath": "/Users/purplesprite/Desktop/workflow/data/registry/normalized/2026-04-12T15-18-10-043Z.json",
+  "rawSnapshotPath": "data/registry/raw/2026-04-12T15-18-10-043Z.json",
+  "normalizedSnapshotPath": "data/registry/normalized/2026-04-12T15-18-10-043Z.json",
+  "capabilitySnapshotPath": "data/registry/capabilities/2026-04-12T15-18-10-043Z.json",
+  "capabilityCatalogPath": "data/registry/catalog/2026-04-12T15-18-10-043Z.md",
   "nodeSpecCount": 323,
   "warningCount": 0
 }

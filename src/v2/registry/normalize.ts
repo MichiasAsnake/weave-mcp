@@ -10,6 +10,7 @@ import type {
   ValueKind,
 } from "./types.ts";
 
+import { inferNodeCapabilities } from "./capabilities.ts";
 import { sha256 } from "./hash.ts";
 
 const OPTIONAL_INPUT_KEYS = new Set(["negative_prompt", "reference_image", "system_prompt"]);
@@ -101,6 +102,8 @@ function normalizeNodeDefinition(args: {
       definition.name,
       nodeType,
     ) || nodeType;
+  const category = firstString(data.color, data.dark_color, data.color_dark, data.border_color);
+  const subtype = firstString(kindRecord.type);
 
   const baseInputHandles = normalizeHandleMap(data.handles && asRecord(data.handles).input, "input");
   const baseOutputHandles = normalizeHandleMap(data.handles && asRecord(data.handles).output, "output");
@@ -137,6 +140,17 @@ function normalizeNodeDefinition(args: {
     params,
     nodeType,
   });
+  const capabilities = inferNodeCapabilities({
+    definitionId,
+    nodeType,
+    displayName,
+    category,
+    subtype,
+    isGenerative,
+    model,
+    ports,
+    params,
+  });
 
   if (!firstString(definition.id, definition.definitionId, definition.type)) {
     args.warnings.push({
@@ -159,12 +173,8 @@ function normalizeNodeDefinition(args: {
     },
     nodeType,
     displayName,
-    // ASSUMPTION: current live definitions do not expose explicit category metadata; `data.color`
-    // is the only stable category-like grouping present in the snapshot.
-    category: firstString(data.color, data.dark_color, data.color_dark, data.border_color),
-    // ASSUMPTION: model-backed definitions surface subtype under `data.kind.type`; when absent
-    // we leave subtype undefined rather than inventing one from the node type.
-    subtype: firstString(kindRecord.type),
+    category,
+    subtype,
     isGenerative,
     spendBehavior: model?.matchedPriceCredits != null ? "credits" : model?.name ? "unknown" : "free",
     model,
@@ -176,6 +186,7 @@ function normalizeNodeDefinition(args: {
       requiresAllMandatoryInputs: ports.some((port) => port.direction === "input" && port.required),
     },
     appMode,
+    capabilities,
     raw: definition,
   };
 }

@@ -93,6 +93,11 @@ function diffNodeSpecs(baseNodeSpec: NodeSpec, headNodeSpec: NodeSpec): Registry
     levels.push("major");
   }
 
+  if (!sameUnknown(baseNodeSpec.capabilities, headNodeSpec.capabilities)) {
+    reasons.push("capabilities changed");
+    levels.push("patch");
+  }
+
   diffPorts(baseNodeSpec.ports, headNodeSpec.ports, reasons, levels);
   diffParams(baseNodeSpec.params, headNodeSpec.params, reasons, levels);
 

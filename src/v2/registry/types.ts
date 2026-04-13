@@ -17,6 +17,21 @@ export type ValueKind =
   | "json"
   | "unknown";
 
+export type NodeFunctionalRole =
+  | "import"
+  | "transform"
+  | "generate"
+  | "analyze"
+  | "export"
+  | "utility"
+  | "bridge"
+  | "model-provider"
+  | "ui-binding"
+  | "unknown";
+
+export type NodeDependencyComplexity = "simple" | "moderate" | "heavy";
+export type NodeBridgeSuitability = "none" | "secondary" | "primary";
+
 export interface ParamUiSpec {
   control?: "textbox" | "textarea" | "slider" | "toggle" | "select" | "file";
   label?: string;
@@ -75,6 +90,24 @@ export interface NodeAppModeSpec {
   exposablePorts: string[];
 }
 
+export interface NodeIoProfile {
+  summary: string;
+  requiredInputKinds: ValueKind[];
+  outputKinds: ValueKind[];
+}
+
+export interface NodeCapabilitySpec {
+  functionalRole: NodeFunctionalRole;
+  taskTags: string[];
+  ioProfile: NodeIoProfile;
+  dependencyComplexity: NodeDependencyComplexity;
+  hiddenDependencies: string[];
+  bridgeSuitability: NodeBridgeSuitability;
+  naturalLanguageDescription: string;
+  commonUseCases: string[];
+  planningHints: string[];
+}
+
 export interface NodeSpecSource {
   definitionId: string;
   fetchedAt: string;
@@ -97,6 +130,7 @@ export interface NodeSpec {
   params: ParamSpec[];
   compatibility: NodeCompatibilitySpec;
   appMode: NodeAppModeSpec;
+  capabilities: NodeCapabilitySpec;
   raw?: unknown;
 }
 
@@ -126,6 +160,34 @@ export interface RawRegistrySnapshot {
   };
 }
 
+export interface RegistryNodeCapabilityEntry {
+  definitionId: string;
+  displayName: string;
+  nodeType: string;
+  category?: string;
+  subtype?: string;
+  capabilities: NodeCapabilitySpec;
+}
+
+export interface RegistryCapabilitySnapshot {
+  syncId: string;
+  fetchedAt: string;
+  registryVersion: string;
+  nodeSpecCount: number;
+  nodes: RegistryNodeCapabilityEntry[];
+  indexes: {
+    byFunctionalRole: Record<string, string[]>;
+    byIoProfile: Record<string, string[]>;
+    byTaskTag: Record<string, string[]>;
+    bridgeTransforms: Record<string, string[]>;
+  };
+  reviewBuckets: {
+    unknown: string[];
+    ambiguous: string[];
+    heavyDependency: string[];
+  };
+}
+
 export interface NormalizedRegistrySnapshot {
   syncId: string;
   fetchedAt: string;
@@ -145,6 +207,8 @@ export interface LatestRegistryPointer {
   authSource: string;
   rawSnapshotPath: string;
   normalizedSnapshotPath: string;
+  capabilitySnapshotPath?: string;
+  capabilityCatalogPath?: string;
   nodeSpecCount: number;
   warningCount: number;
 }
@@ -152,6 +216,8 @@ export interface LatestRegistryPointer {
 export interface RegistryFileWriteResult {
   rawSnapshotPath: string;
   normalizedSnapshotPath: string;
+  capabilitySnapshotPath: string;
+  capabilityCatalogPath: string;
   latestPointerPath: string;
 }
 
