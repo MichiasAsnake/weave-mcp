@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { OrchestratorStateSchema, type OrchestratorRuntime, type OrchestratorState } from "../types.ts";
-import { appendMessage, persistState, runFinalizeRevisionModel } from "./shared.ts";
+import { appendMessage, getRemainingPlannedSteps, hasUsablePlannedSteps, persistState, runFinalizeRevisionModel } from "./shared.ts";
 
 export async function decideFinalizeNode(
   state: OrchestratorState,
@@ -20,6 +20,13 @@ export async function decideFinalizeNode(
     await persistState(runtime, failedState);
     return failedState;
   }
+
+  const remainingSteps = getRemainingPlannedSteps(state);
+  const shouldForceRevise =
+    state.reviewResult.recommendedAction === "replan"
+    && (state.workingGraph?.nodes.length || 0) > 0
+    && hasUsablePlannedSteps(state)
+    && remainingSteps.length > 0;
 
   if (state.reviewResult.satisfiesRequest && state.reviewResult.recommendedAction === "finalize") {
     const finalized = OrchestratorStateSchema.parse({
@@ -53,7 +60,7 @@ export async function decideFinalizeNode(
     return failedState;
   }
 
-  if (state.reviewResult.recommendedAction === "replan") {
+  if (state.reviewResult.recommendedAction === "replan" && !shouldForceRevise) {
     const replanned = OrchestratorStateSchema.parse({
       ...state,
       proposedToolCalls: [],
@@ -78,6 +85,9 @@ export async function decideFinalizeNode(
   }
 
   const revisionDraft = await runFinalizeRevisionModel(state, state.registrySnapshot, runtime);
+  const forcedReviseSummary = shouldForceRevise
+    ? ` Forced revise: graph already contains nodes and ${remainingSteps.length} planned step(s) remain implementable with local changes.`
+    : "";
   const skippedSummary =
     revisionDraft.skippedToolCalls && revisionDraft.skippedToolCalls.length > 0
       ? ` Skipped ${revisionDraft.skippedToolCalls.length} invalid call(s): ${revisionDraft.skippedToolCalls
@@ -95,7 +105,7 @@ export async function decideFinalizeNode(
       {
         nodeName: "decide_finalize",
         role: "assistant",
-        content: `Planned ${revisionDraft.proposedToolCalls.length} semantic revision tool call(s).${skippedSummary}`,
+        content: `Planned ${revisionDraft.proposedToolCalls.length} semantic revision tool call(s).${skippedSummary}${forcedReviseSummary}`,
       },
       runtime,
     ),

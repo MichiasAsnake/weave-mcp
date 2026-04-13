@@ -179,6 +179,32 @@ export function buildRegistryDefinitionCatalogForLLM(
     .join("\n");
 }
 
+export function getRemainingPlannedSteps(
+  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+): Array<{ stepId: string; summary: string; nodeDefinitionIds: string[]; expectedOutputs: string[] }> {
+  if (!state.plan) {
+    return [];
+  }
+
+  const graphDefinitionIds = new Set((state.workingGraph?.nodes || []).map((node) => node.definitionId));
+
+  return state.plan.steps
+    .filter((step) => step.nodeDefinitionIds.length > 0)
+    .filter((step) => !step.nodeDefinitionIds.some((definitionId) => graphDefinitionIds.has(definitionId)))
+    .map((step) => ({
+      stepId: step.stepId,
+      summary: step.summary,
+      nodeDefinitionIds: step.nodeDefinitionIds,
+      expectedOutputs: step.expectedOutputs,
+    }));
+}
+
+export function hasUsablePlannedSteps(
+  state: Pick<OrchestratorState, "plan">,
+): boolean {
+  return Boolean(state.plan?.steps.some((step) => step.nodeDefinitionIds.length > 0));
+}
+
 export function summarizeGraphForLLM(
   graph: GraphIR | undefined,
   registry: NormalizedRegistrySnapshot | undefined,
@@ -603,6 +629,8 @@ export function buildReviewPrompt(
   state: OrchestratorState,
   registry: NormalizedRegistrySnapshot,
 ): string {
+  const remainingSteps = getRemainingPlannedSteps(state);
+
   return [
     `User request: ${state.userRequest}`,
     "",
@@ -610,7 +638,11 @@ export function buildReviewPrompt(
     "",
     `Graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
     "",
+    `Remaining planned steps: ${JSON.stringify(remainingSteps, null, 2)}`,
+    "",
     "Review whether the graph semantically satisfies the user request.",
+    "If the graph is partially built and the remaining planned steps can still be implemented with local node/edge changes, prefer `revise` over `replan`.",
+    "Use `replan` only when the plan has no usable definitionIds left or the graph contradicts the plan in a way local changes cannot fix.",
   ].join("\n");
 }
 
@@ -619,13 +651,18 @@ export function buildFinalizeRevisionPrompt(
   registry: NormalizedRegistrySnapshot,
 ): string {
   const registryCatalog = buildRegistryDefinitionCatalogForLLM(registry);
+  const remainingSteps = getRemainingPlannedSteps(state);
 
   return [
     `User request: ${state.userRequest}`,
     "",
+    `Plan: ${JSON.stringify(state.plan, null, 2)}`,
+    "",
     `Review result: ${JSON.stringify(state.reviewResult, null, 2)}`,
     "",
     `Graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
+    "",
+    `Remaining planned steps: ${JSON.stringify(remainingSteps, null, 2)}`,
     "",
     "## Available Node Definitions (copy definitionId exactly)",
     "```text",
@@ -643,6 +680,7 @@ export function buildFinalizeRevisionPrompt(
     "REQUIRED fields: `fieldKey`, `fieldLabel`, `bindingNodeId`, `bindingKey`, `bindingType`.",
     "",
     "Propose only the atomic tool calls needed to address the semantic gaps.",
+    "Focus on adding nodes and edges for the remaining planned steps above. Do not redesign the workflow or restart from scratch.",
     "IMPORTANT: Use ONLY definitionIds from the registry above. Never invent IDs.",
     "You MUST emit at least one tool call in `proposedToolCalls`.",
   ].join("\n");
