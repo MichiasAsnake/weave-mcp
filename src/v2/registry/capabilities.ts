@@ -230,8 +230,9 @@ export function getPreferredDefinitionIdsForStep(
       isCompatibleExportNodeForStep(node, step, options)
       && (
         preferImageToFile
-          ? node.capabilities.ioProfile.summary === "image -> file"
-          : node.capabilities.functionalRole === "export" && node.capabilities.ioProfile.outputKinds.includes("file")
+          ? node.capabilities.ioProfile.summary === "image -> file" || isSelectableTerminalExportNode(node)
+          : (node.capabilities.functionalRole === "export" && node.capabilities.ioProfile.outputKinds.includes("file"))
+            || isSelectableTerminalExportNode(node)
       )
     );
 
@@ -243,15 +244,21 @@ export function getPreferredDefinitionIdsForStep(
       compatibleCandidates,
       (node) => {
         let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_for_generic_export")) score += 8;
         if (node.capabilities.planningHints.includes("prefer_for_image_to_file_export")) score += 5;
         if (node.capabilities.functionalRole === "export") score += 3;
         if (node.capabilities.dependencyComplexity === "simple") score += 2;
         if (node.capabilities.fileExport.mode === "selectable") score += 6;
         if (node.capabilities.fileExport.mode === "unknown") score += 1;
         if (node.capabilities.fileExport.mode === "fixed" && fileExportIntent.requestedFormats.length === 0) score -= 2;
+        if (
+          fileExportIntent.requestedFormats.length > 0
+          && node.capabilities.fileExport.mode === "selectable"
+        ) score -= 4;
         if (fileExportIntent.requestedFormats.some((format) => node.capabilities.fileExport.supportedFormats.includes(format))) {
-          score += 4;
+          score += 10;
         }
+        if (preferImageToFile && node.capabilities.ioProfile.summary === "image -> file") score += 2;
         return score;
       },
     ).slice(0, 1);
@@ -314,12 +321,13 @@ export function isCompatibleExportNodeForStep(
   const availableKinds = new Set(options.availableKinds || []);
   const text = getStepIntentText(step, options.requestText);
   const preferImageToFile = shouldPreferImageToFileExport(text, availableKinds);
+  const selectableTerminalExport = isSelectableTerminalExportNode(node);
 
-  if (preferImageToFile && node.capabilities.ioProfile.summary !== "image -> file") {
+  if (preferImageToFile && node.capabilities.ioProfile.summary !== "image -> file" && !selectableTerminalExport) {
     return false;
   }
 
-  if (!preferImageToFile && !node.capabilities.ioProfile.outputKinds.includes("file")) {
+  if (!preferImageToFile && !node.capabilities.ioProfile.outputKinds.includes("file") && !selectableTerminalExport) {
     return false;
   }
 
@@ -690,6 +698,12 @@ function rankNodeSpecs(nodeSpecs: NodeSpec[], score: (nodeSpec: NodeSpec) => num
   return sortNodeSpecs(nodeSpecs)
     .sort((left, right) => score(right) - score(left))
     .map((nodeSpec) => nodeSpec.source.definitionId);
+}
+
+function isSelectableTerminalExportNode(node: Pick<NodeSpec, "capabilities">): boolean {
+  return node.capabilities.functionalRole === "export"
+    && node.capabilities.fileExport.mode === "selectable"
+    && node.capabilities.ioProfile.outputKinds.length === 0;
 }
 
 function inferFileExportIntent(text: string): FileExportIntent {

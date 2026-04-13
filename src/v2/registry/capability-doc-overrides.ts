@@ -131,6 +131,39 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
+      definitionIds: ["JyaWOYxm1VCFqfdn6tFi"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/articles/12268300-helpers",
+      "https://help.weavy.ai/en/articles/12343738-how-to-download-all-of-my-generation-at-once",
+    ],
+    capabilities: {
+      functionalRole: "export",
+      taskTags: ["generic-export", "image-export", "video-export", "file-export"],
+      ioProfile: {
+        summary: "any -> none",
+        requiredInputKinds: ["any"],
+        outputKinds: [],
+      },
+      fileExport: {
+        mode: "selectable",
+        supportedFormats: [],
+      },
+      dependencyComplexity: "simple",
+      hiddenDependencies: [],
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Exports an image or video result from the graph for download, preserving or selecting an output format at export time.",
+      commonUseCases: [
+        "Download a generated image",
+        "Download a generated video",
+        "Expose a final workflow result to the user",
+      ],
+      planningHints: ["prefer_for_generic_export", "prefer_near_workflow_end"],
+    },
+  },
+  {
+    match: {
       modelNamePrefixes: [
         "fal-ai/nano-banana",
         "fal-ai/nano-banana-2",
