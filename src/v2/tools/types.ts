@@ -20,6 +20,10 @@ export interface ToolResult {
   issues: ValidationIssue[];
 }
 
+export interface ToolMutationOptions {
+  skipGraphValidation?: boolean;
+}
+
 export const ToolNodeIdSchema = z.string().min(1);
 export const ToolEdgeIdSchema = z.string().min(1);
 export const ToolPortKeySchema = z.string().min(1);
@@ -124,8 +128,18 @@ export function finalizeToolMutation(
   candidateGraph: GraphIR,
   registry: RegistrySnapshot,
   preIssues: ValidationIssue[] = [],
+  options: ToolMutationOptions = {},
 ): ToolResult {
   const parsedCandidate = GraphIRSchema.parse(candidateGraph);
+
+  if (options.skipGraphValidation) {
+    return {
+      applied: true,
+      graph: parsedCandidate,
+      issues: preIssues,
+    };
+  }
+
   const validationResult = validateGraph(parsedCandidate, registry);
   const issues = [...preIssues, ...validationResult.issues];
 

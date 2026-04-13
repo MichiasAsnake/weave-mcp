@@ -1,5 +1,6 @@
 // @ts-nocheck
 import type { GraphIR } from "../../graph/types.ts";
+import { validateGraph } from "../../validate/index.ts";
 import { OrchestratorStateSchema, type OrchestratorRuntime, type OrchestratorState } from "../types.ts";
 import {
   appendCheckpoint,
@@ -21,12 +22,16 @@ export async function applyToolStepNode(
     throw new Error("apply_tool_step requires a working graph.");
   }
 
-  let nextGraph: GraphIR = state.workingGraph as GraphIR;
+  const originalGraph: GraphIR = state.workingGraph as GraphIR;
+  let candidateGraph: GraphIR = originalGraph;
   const appliedToolCalls = [...state.appliedToolCalls];
   const resultMessages: string[] = [];
+  let batchFailed = false;
 
   for (const toolCall of state.proposedToolCalls) {
-    const result = applyToolCall(nextGraph, state.registrySnapshot, toolCall);
+    const result = applyToolCall(candidateGraph, state.registrySnapshot, toolCall, {
+      skipGraphValidation: true,
+    });
     appliedToolCalls.push(issuesToAppliedToolCall(toolCall, result, runtime));
 
     const message = result.applied
@@ -36,10 +41,24 @@ export async function applyToolStepNode(
     resultMessages.push(message);
 
     if (!result.applied) {
+      batchFailed = true;
       break;
     }
 
-    nextGraph = result.graph as GraphIR;
+    candidateGraph = result.graph as GraphIR;
+  }
+
+  let nextGraph: GraphIR = originalGraph;
+  if (!batchFailed) {
+    const finalValidation = validateGraph(candidateGraph, state.registrySnapshot);
+    if (finalValidation.ok) {
+      nextGraph = candidateGraph;
+    } else {
+      const firstError = finalValidation.issues.find((issue) => issue.severity === "error");
+      resultMessages.push(
+        `Rejected tool batch: ${firstError?.message || "final graph would be invalid"}`,
+      );
+    }
   }
 
   const nextState = OrchestratorStateSchema.parse({

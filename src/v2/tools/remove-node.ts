@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { GraphIRSchema } from "../graph/zod.ts";
 import type { GraphIR } from "../graph/types.ts";
-import type { RegistrySnapshot, ToolResult } from "./types.ts";
+import type { RegistrySnapshot, ToolMutationOptions, ToolResult } from "./types.ts";
 import {
   RemoveNodeToolInputSchema,
   getGraphNodeById,
@@ -17,6 +17,7 @@ export function removeNodeTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
   rawInput: RemoveNodeToolInput,
+  options: ToolMutationOptions = {},
 ): ToolResult {
   const input = RemoveNodeToolInputSchema.parse(rawInput);
   const node = getGraphNodeById(graph, input.nodeId);
@@ -63,5 +64,5 @@ export function removeNodeTool(
     },
   });
 
-  return finalizeToolMutation(graph, candidateGraph, registry);
+  return finalizeToolMutation(graph, candidateGraph, registry, [], options);
 }

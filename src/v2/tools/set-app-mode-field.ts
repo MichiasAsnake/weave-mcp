@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { setAppModeFields } from "../graph/app-mode.ts";
 import type { GraphIR } from "../graph/types.ts";
-import type { RegistrySnapshot, ToolResult } from "./types.ts";
+import type { RegistrySnapshot, ToolMutationOptions, ToolResult } from "./types.ts";
 import {
   SetAppModeFieldToolLLMInputSchema,
   SetAppModeFieldToolInputSchema,
@@ -21,6 +21,7 @@ export function setAppModeFieldTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
   rawInput: SetAppModeFieldToolInput | SetAppModeFieldToolLLMInput,
+  options: ToolMutationOptions = {},
 ): ToolResult {
   const input = SetAppModeFieldToolAnyInputSchema.parse(rawInput);
   const normalizedField = SetAppModeFieldToolInputSchema.shape.field.parse({
@@ -36,5 +37,5 @@ export function setAppModeFieldTool(
       : [...graph.appMode.fields, normalizedField];
 
   const candidateGraph = setAppModeFields(graph, nextFields);
-  return finalizeToolMutation(graph, candidateGraph, registry);
+  return finalizeToolMutation(graph, candidateGraph, registry, [], options);
 }

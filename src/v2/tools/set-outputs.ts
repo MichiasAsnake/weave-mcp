@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { setGraphOutputs } from "../graph/builders.ts";
 import type { GraphIR } from "../graph/types.ts";
-import type { RegistrySnapshot, ToolResult } from "./types.ts";
+import type { RegistrySnapshot, ToolMutationOptions, ToolResult } from "./types.ts";
 import {
   SetOutputsToolInputSchema,
   finalizeToolMutation,
@@ -17,6 +17,7 @@ export function setOutputsTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
   rawInput: SetOutputsToolInput,
+  options: ToolMutationOptions = {},
 ): ToolResult {
   const input = SetOutputsToolInputSchema.parse(rawInput);
   const missingNodeIds = input.nodeIds.filter((nodeId) => !getGraphNodeById(graph, nodeId));
@@ -37,5 +38,5 @@ export function setOutputsTool(
   }
 
   const candidateGraph = setGraphOutputs(graph, input.nodeIds);
-  return finalizeToolMutation(graph, candidateGraph, registry);
+  return finalizeToolMutation(graph, candidateGraph, registry, [], options);
 }

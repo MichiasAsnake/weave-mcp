@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { addEdgeToGraph, createGraphEdgeIR } from "../graph/builders.ts";
 import type { GraphIR } from "../graph/types.ts";
-import type { RegistrySnapshot, ToolResult } from "./types.ts";
+import type { RegistrySnapshot, ToolMutationOptions, ToolResult } from "./types.ts";
 import {
   ConnectPortsToolInputSchema,
   finalizeToolMutation,
@@ -18,6 +18,7 @@ export function connectPortsTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
   rawInput: ConnectPortsToolInput,
+  options: ToolMutationOptions = {},
 ): ToolResult {
   const input = ConnectPortsToolInputSchema.parse(rawInput);
   const fromNode = getGraphNodeById(graph, input.fromNodeId);
@@ -119,5 +120,5 @@ export function connectPortsTool(
     }),
   );
 
-  return finalizeToolMutation(graph, candidateGraph, registry);
+  return finalizeToolMutation(graph, candidateGraph, registry, [], options);
 }

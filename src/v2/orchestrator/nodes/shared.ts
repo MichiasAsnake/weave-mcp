@@ -333,22 +333,23 @@ export function applyToolCall(
   graph: GraphIR,
   registry: NormalizedRegistrySnapshot,
   toolCall: OrchestratorToolCall,
+  options: { skipGraphValidation?: boolean } = {},
 ): ToolResult {
   switch (toolCall.toolName) {
     case "create-node":
-      return createNodeTool(graph, registry, toolCall.input);
+      return createNodeTool(graph, registry, toolCall.input, options);
     case "set-node-param":
-      return setNodeParamTool(graph, registry, toolCall.input);
+      return setNodeParamTool(graph, registry, toolCall.input, options);
     case "connect-ports":
-      return connectPortsTool(graph, registry, toolCall.input);
+      return connectPortsTool(graph, registry, toolCall.input, options);
     case "disconnect-edge":
-      return disconnectEdgeTool(graph, registry, toolCall.input);
+      return disconnectEdgeTool(graph, registry, toolCall.input, options);
     case "remove-node":
-      return removeNodeTool(graph, registry, toolCall.input);
+      return removeNodeTool(graph, registry, toolCall.input, options);
     case "set-outputs":
-      return setOutputsTool(graph, registry, toolCall.input);
+      return setOutputsTool(graph, registry, toolCall.input, options);
     case "set-app-mode-field":
-      return setAppModeFieldTool(graph, registry, toolCall.input);
+      return setAppModeFieldTool(graph, registry, toolCall.input, options);
     default: {
       const exhaustive: never = toolCall;
       throw new Error(`Unhandled tool call: ${JSON.stringify(exhaustive)}`);

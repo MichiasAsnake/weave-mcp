@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createGraphNodeIR, addNodeToGraph } from "../graph/builders.ts";
 import { NodeParamSchemasByDefinitionId } from "../generated/node-schemas.ts";
 import type { GraphIR } from "../graph/types.ts";
-import type { RegistrySnapshot, ToolResult } from "./types.ts";
+import type { RegistrySnapshot, ToolMutationOptions, ToolResult } from "./types.ts";
 import {
   CreateNodeToolLLMInputSchema,
   CreateNodeToolInputSchema,
@@ -26,6 +26,7 @@ export function createNodeTool(
   graph: GraphIR,
   registry: RegistrySnapshot,
   rawInput: CreateNodeToolInput | CreateNodeToolLLMInput,
+  options: ToolMutationOptions = {},
 ): ToolResult {
   const input = CreateNodeToolAnyInputSchema.parse(rawInput);
   const nodeSpec = getNodeSpecByDefinitionId(registry, input.definitionId);
@@ -83,5 +84,5 @@ export function createNodeTool(
   });
 
   const candidateGraph = addNodeToGraph(graph, node);
-  return finalizeToolMutation(graph, candidateGraph, registry);
+  return finalizeToolMutation(graph, candidateGraph, registry, [], options);
 }
