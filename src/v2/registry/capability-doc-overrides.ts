@@ -218,8 +218,35 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
+      definitionIds: ["gVM2rcm5yygP8EEtR1os"],
+      modelNamePrefixes: ["gpt_image_1_edit"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/collections/15247921-nodes-and-models-documentations",
+    ],
+    capabilities: {
+      functionalRole: "transform",
+      taskTags: ["image-edit", "prompt-guided-image-edit", "uploaded-image-edit"],
+      ioProfile: {
+        summary: "image+text -> image",
+        requiredInputKinds: ["image", "text"],
+        outputKinds: ["image"],
+      },
+      dependencyComplexity: "simple",
+      hiddenDependencies: [],
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Edits an existing image using a text prompt and returns an edited image.",
+      commonUseCases: [
+        "Edit an uploaded image with text instructions",
+        "Apply style changes or localized edits to an existing image",
+      ],
+      planningHints: ["prefer_for_uploaded_image_edit", "requires_text_prompt"],
+    },
+  },
+  {
+    match: {
       definitionIds: ["zeSQQxxjcaVdWWunD60J"],
-      displayNames: ["GPT Image 1"],
     },
     docs: [
       "https://help.weavy.ai/en/collections/15247921-nodes-and-models-documentations",

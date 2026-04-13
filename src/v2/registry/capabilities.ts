@@ -340,14 +340,33 @@ export function getPreferredDefinitionIdsForStep(
       registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("image-edit")),
       (node) => {
         let score = 0;
+        const acceptsImageInput = node.ports.some((port) =>
+          port.direction === "input" && ((port.accepts || [port.kind]).includes("image") || port.kind === "image")
+        );
+        const requiresImageInput = node.ports.some((port) =>
+          port.direction === "input" && port.required && ((port.accepts || [port.kind]).includes("image") || port.kind === "image")
+        );
+        const acceptsTextInput = node.ports.some((port) =>
+          port.direction === "input" && ((port.accepts || [port.kind]).includes("text") || port.kind === "text")
+        );
+        const producesImage = node.capabilities.ioProfile.outputKinds.includes("image");
+
+        if (node.capabilities.planningHints.includes("prefer_for_uploaded_image_edit")) score += 8;
         if (node.capabilities.planningHints.includes("prefer_when_request_mentions_editing")) score += 5;
+        if (node.capabilities.taskTags.includes("prompt-guided-image-edit")) score += 5;
+        if (node.capabilities.taskTags.includes("uploaded-image-edit")) score += 4;
         if (node.capabilities.ioProfile.summary === "image+text -> image") score += 7;
-        if (node.capabilities.ioProfile.requiredInputKinds.includes("image")) score += 4;
-        if (node.capabilities.ioProfile.requiredInputKinds.includes("text")) score += 3;
-        if (node.capabilities.ioProfile.summary === "text -> image") score -= 6;
+        if (requiresImageInput) score += 6;
+        else if (acceptsImageInput) score += 3;
+        if (acceptsTextInput) score += 4;
+        if (producesImage) score += 3;
+        if (availableKinds.has("image") && requiresImageInput) score += 4;
+        if (availableKinds.has("image") && acceptsImageInput) score += 2;
+        if (availableKinds.has("image") && !acceptsImageInput) score -= 8;
+        if (node.capabilities.ioProfile.summary === "text -> image") score -= 4;
+        if (node.capabilities.taskTags.includes("prompt-to-image") || node.capabilities.taskTags.includes("text-to-image")) score -= 3;
         if (node.capabilities.dependencyComplexity === "simple") score += 2;
         if (node.capabilities.dependencyComplexity === "heavy") score -= 6;
-        if (availableKinds.has("image")) score += 2;
         return score;
       },
     ).slice(0, 1);
