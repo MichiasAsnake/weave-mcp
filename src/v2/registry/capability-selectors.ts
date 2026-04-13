@@ -1,5 +1,15 @@
-import type { NormalizedRegistrySnapshot, ValueKind } from "./types.ts";
+import type { NodeSpec, NormalizedRegistrySnapshot, ValueKind } from "./types.ts";
 import { getBridgeDefinitionIdsForKinds, getPreferredDefinitionIdsForStep } from "./capabilities.ts";
+
+function rankDefinitionIds(nodeSpecs: NodeSpec[], score: (nodeSpec: NodeSpec) => number): string[] {
+  return [...nodeSpecs]
+    .sort((left, right) => {
+      const delta = score(right) - score(left);
+      if (delta !== 0) return delta;
+      return left.displayName.localeCompare(right.displayName) || left.source.definitionId.localeCompare(right.source.definitionId);
+    })
+    .map((nodeSpec) => nodeSpec.source.definitionId);
+}
 
 export function selectImportCandidates(
   registry: NormalizedRegistrySnapshot,
@@ -13,6 +23,26 @@ export function selectImportCandidates(
     registry,
     { requestText },
   );
+}
+
+export function selectPromptEnhancerCandidates(
+  registry: NormalizedRegistrySnapshot,
+): string[] {
+  return rankDefinitionIds(
+    registry.nodeSpecs.filter((node) =>
+      node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")
+      || node.capabilities.taskTags.includes("prompt-enhance")
+      || node.nodeType === "prompt_enhance"
+    ),
+    (node) => {
+      let score = 0;
+      if (node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")) score += 8;
+      if (node.capabilities.taskTags.includes("prompt-enhance")) score += 6;
+      if (node.capabilities.ioProfile.summary === "text -> text") score += 4;
+      if (node.capabilities.dependencyComplexity === "simple") score += 2;
+      return score;
+    },
+  ).slice(0, 1);
 }
 
 export function selectUpscaleCandidates(
@@ -44,8 +74,6 @@ export function selectImageEditCandidates(
     { requestText, availableKinds },
   );
 }
-
-
 
 export function selectTextToImageCandidates(
   registry: NormalizedRegistrySnapshot,

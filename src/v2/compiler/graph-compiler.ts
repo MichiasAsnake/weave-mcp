@@ -7,7 +7,7 @@ import {
   setGraphOutputs,
 } from "../graph/builders.ts";
 import { createDefaultAppModeIR, setAppModeEnabled, setAppModeFields } from "../graph/app-mode.ts";
-import type { GraphAppModeIR } from "../graph/types.ts";
+import type { GraphAppModeIR, GraphNodeIR } from "../graph/types.ts";
 import type { NodeSpec, PortSpec, ValueKind } from "../registry/types.ts";
 import { validateGraph } from "../validate/index.ts";
 import { makeCompilerError } from "./errors.ts";
@@ -23,6 +23,13 @@ import type {
   CompilerRuntime,
   CompilerTraceEntry,
 } from "./types.ts";
+
+interface OutputSource {
+  stepId: string;
+  nodeId: string;
+  portKey: string;
+  valueKind: ValueKind;
+}
 
 function getNodeSpec(registry: CompilerRuntime["registry"], definitionId: string): NodeSpec {
   const nodeSpec = registry.nodeSpecs.find((node) => node.source.definitionId === definitionId);
@@ -44,33 +51,45 @@ function chooseOutputPort(nodeSpec: NodeSpec, preferredKinds: ValueKind[]): Port
   throw new Error(`No output port matches ${preferredKinds.join(',')} on ${nodeSpec.displayName}`);
 }
 
-function chooseInputPort(nodeSpec: NodeSpec, fromKind: ValueKind): PortSpec {
-  const inputPorts = nodeSpec.ports.filter((port) => port.direction === "input");
-  const direct = inputPorts.find((port) => (port.accepts || [port.kind]).includes(fromKind));
-  if (direct) return direct;
-  const anyPort = inputPorts.find((port) => (port.accepts || [port.kind]).includes("any") || port.kind === "any");
-  if (anyPort) return anyPort;
-  if (inputPorts.length === 1) return inputPorts[0];
-  throw new Error(`No input port accepts ${fromKind} on ${nodeSpec.displayName}`);
+function chooseSourceForInputPort(port: PortSpec, sources: Map<ValueKind, OutputSource>, lastSource: OutputSource | null): OutputSource | null {
+  const acceptedKinds = port.accepts || [port.kind];
+
+  for (const acceptedKind of acceptedKinds) {
+    if (acceptedKind === "any") {
+      if (lastSource) return lastSource;
+      continue;
+    }
+    const source = sources.get(acceptedKind);
+    if (source) return source;
+  }
+
+  if (port.kind === "any" && lastSource) {
+    return lastSource;
+  }
+
+  return null;
 }
 
 function inferOperationAppFields(
   operationKind: CompilerOperationKind,
   nodeSpec: NodeSpec,
   nodeId: string,
+  connectedInputKeys: Set<string>,
 ): CompilerAppField[] {
-  if (!["edit-image", "generate-image", "generate-video"].includes(operationKind)) {
+  if (!["enhance-prompt", "edit-image", "generate-image", "generate-video"].includes(operationKind)) {
     return [];
   }
 
   const promptPort = nodeSpec.ports.find((port) =>
     port.direction === "input"
     && port.required
+    && !connectedInputKeys.has(port.key)
     && ((port.accepts || [port.kind]).includes("text") || port.kind === "text")
     && /prompt|instruction|text/.test(port.key.toLowerCase()),
   ) || nodeSpec.ports.find((port) =>
     port.direction === "input"
     && port.required
+    && !connectedInputKeys.has(port.key)
     && ((port.accepts || [port.kind]).includes("text") || port.kind === "text"),
   );
 
@@ -85,7 +104,11 @@ function inferOperationAppFields(
     required: true,
     locked: false,
     visible: true,
-    helpText: operationKind === "edit-image" ? "Describe how the uploaded image should be edited." : "Describe what should be generated.",
+    helpText: operationKind === "edit-image"
+      ? "Describe how the uploaded image should be edited."
+      : operationKind === "enhance-prompt"
+        ? "Describe what should be generated; the workflow will enhance this prompt before running the model."
+        : "Describe what should be generated.",
     source: {
       nodeId,
       bindingType: "unconnected-input-port",
@@ -98,6 +121,8 @@ function getPreferredOutputKindsForOperation(operationKind: CompilerOperationKin
   switch (operationKind) {
     case "upload":
       return ["file", "image", "any"];
+    case "enhance-prompt":
+      return ["text", "any"];
     case "file-to-image":
     case "upscale-image":
     case "edit-image":
@@ -120,6 +145,8 @@ function getStepId(operationKind: CompilerOperationKind, occurrence: number): st
       return "upload";
     case "file-to-image":
       return "bridge";
+    case "enhance-prompt":
+      return occurrence === 1 ? "enhance-prompt" : `enhance-prompt-${occurrence}`;
     case "upscale-image":
       return occurrence === 1 ? "upscale" : `upscale-${occurrence}`;
     case "edit-image":
@@ -143,6 +170,8 @@ function getNodeId(operationKind: CompilerOperationKind, occurrence: number): st
       return "uploadImageNode";
     case "file-to-image":
       return "fileToImageBridgeNode";
+    case "enhance-prompt":
+      return occurrence === 1 ? "enhancePromptNode" : `enhancePromptNode${occurrence}`;
     case "upscale-image":
       return occurrence === 1 ? "upscaleImageNode" : `upscaleImageNode${occurrence}`;
     case "edit-image":
@@ -166,6 +195,8 @@ function getPurpose(operationKind: CompilerOperationKind): string {
       return "user upload";
     case "file-to-image":
       return "file to image bridge";
+    case "enhance-prompt":
+      return "prompt enhancement";
     case "upscale-image":
       return "image upscale";
     case "edit-image":
@@ -200,11 +231,11 @@ function buildCompiledWorkflowPlan(args: {
   const compiledEdges: CompiledWorkflowPlan["edges"] = [];
   const appFields: CompilerAppField[] = [];
   const occurrenceByKind = new Map<CompilerOperationKind, number>();
+  const latestSourceByKind = new Map<ValueKind, OutputSource>();
 
-  let previousNode: import('../graph/types.ts').GraphNodeIR | null = null;
-  let previousSpec: NodeSpec | null = null;
-  let previousOutputPort: PortSpec | null = null;
-  let exportNodeId: string | null = null;
+  let latestProducedSource: OutputSource | null = null;
+  let latestNode: GraphNodeIR | null = null;
+  let terminalNodeId: string | null = null;
 
   for (const selection of args.selections) {
     const occurrence = (occurrenceByKind.get(selection.operationKind) || 0) + 1;
@@ -231,32 +262,44 @@ function buildCompiledWorkflowPlan(args: {
       purpose: getPurpose(selection.operationKind),
     });
 
-    if (previousNode && previousSpec && previousOutputPort) {
-      const inputPort = chooseInputPort(nodeSpec, previousOutputPort.kind);
+    const connectedInputKeys = new Set<string>();
+    for (const inputPort of nodeSpec.ports.filter((port) => port.direction === "input" && port.required)) {
+      const source = chooseSourceForInputPort(inputPort, latestSourceByKind, latestProducedSource);
+      if (!source) {
+        continue;
+      }
+      connectedInputKeys.add(inputPort.key);
       graph = addEdgeToGraph(
         graph,
         createGraphEdgeIR({
-          from: { nodeId: previousNode.nodeId, portKey: previousOutputPort.key, valueKind: previousOutputPort.kind },
+          from: { nodeId: source.nodeId, portKey: source.portKey, valueKind: source.valueKind },
           to: { nodeId: node.nodeId, portKey: inputPort.key, valueKind: inputPort.kind },
         }),
       );
       compiledEdges.push({
-        fromStepId: compiledNodes[compiledNodes.length - 2].stepId,
+        fromStepId: source.stepId,
         toStepId: stepId,
-        fromPortKey: previousOutputPort.key,
+        fromPortKey: source.portKey,
         toPortKey: inputPort.key,
       });
     }
 
-    appFields.push(...inferOperationAppFields(selection.operationKind, nodeSpec, node.nodeId));
+    appFields.push(...inferOperationAppFields(selection.operationKind, nodeSpec, node.nodeId, connectedInputKeys));
 
-    previousNode = node;
-    previousSpec = nodeSpec;
+    latestNode = node;
     if (selection.operationKind !== "export" && selection.operationKind !== "output-result") {
-      previousOutputPort = chooseOutputPort(nodeSpec, getPreferredOutputKindsForOperation(selection.operationKind));
+      const outputPort = chooseOutputPort(nodeSpec, getPreferredOutputKindsForOperation(selection.operationKind));
+      latestProducedSource = {
+        stepId,
+        nodeId: node.nodeId,
+        portKey: outputPort.key,
+        valueKind: outputPort.kind,
+      };
+      for (const producedKind of outputPort.produces || [outputPort.kind]) {
+        latestSourceByKind.set(producedKind, latestProducedSource);
+      }
     } else {
-      previousOutputPort = null;
-      exportNodeId = node.nodeId;
+      terminalNodeId = node.nodeId;
     }
   }
 
@@ -273,10 +316,10 @@ function buildCompiledWorkflowPlan(args: {
     graph = setAppModeEnabled(graph, true);
     graph = setAppModeFields(graph, appFields, { exposureStrategy: "manual" as GraphAppModeIR["exposureStrategy"] });
   }
-  if (exportNodeId) {
-    graph = setGraphOutputs(graph, [exportNodeId]);
-  } else if (previousNode) {
-    graph = setGraphOutputs(graph, [previousNode.nodeId]);
+  if (terminalNodeId) {
+    graph = setGraphOutputs(graph, [terminalNodeId]);
+  } else if (latestNode) {
+    graph = setGraphOutputs(graph, [latestNode.nodeId]);
   }
 
   return {

@@ -193,6 +193,31 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
+      definitionIds: ["7gKmskdJQ28nMlxdB6aR"],
+      displayNames: ["Prompt Enhancer"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/articles/12268282-text-tools",
+    ],
+    capabilities: {
+      functionalRole: "transform",
+      taskTags: ["prompt-enhance", "text-transform"],
+      ioProfile: {
+        summary: "text -> text",
+        requiredInputKinds: ["text"],
+        outputKinds: ["text"],
+      },
+      dependencyComplexity: "simple",
+      hiddenDependencies: [],
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Improves or expands a prompt before it is sent to a downstream generation node.",
+      commonUseCases: ["Improve a user's prompt before image generation", "Refine a text prompt for stronger outputs"],
+      planningHints: ["prefer_for_prompt_enhancement", "requires_text_prompt"],
+    },
+  },
+  {
+    match: {
       definitionIds: ["zeSQQxxjcaVdWWunD60J"],
       displayNames: ["GPT Image 1"],
     },

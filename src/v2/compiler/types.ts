@@ -20,6 +20,7 @@ export type CompilerDomain = "image" | "video" | "audio" | "text" | "unknown";
 export type CompilerOperationKind =
   | "upload"
   | "file-to-image"
+  | "enhance-prompt"
   | "upscale-image"
   | "edit-image"
   | "generate-image"

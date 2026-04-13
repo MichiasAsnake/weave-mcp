@@ -28,8 +28,37 @@ function inferDomain(text: string): CompilerIntent["domain"] {
   return "unknown";
 }
 
+function shouldSortBefore(otherKind: CompilerOperation["kind"], currentKind: CompilerOperation["kind"]): boolean {
+  return currentKind === "enhance-prompt"
+    && ["edit-image", "generate-image", "generate-video"].includes(otherKind);
+}
+
 function buildTransformOperations(text: string, domain: CompilerIntent["domain"]): CompilerOperation[] {
   const candidates: Array<{ index: number; operation: CompilerOperation }> = [];
+  const mentionsPrompt = /\bprompt\b|text prompt|type a prompt/.test(text);
+
+  const enhancePromptIndex = findMatchIndex(text, [
+    /\benhance(?:s|d|ing)?\b.*\bprompt\b/,
+    /\bimprov(?:e|es|ed|ing)\b.*\bprompt\b/,
+    /\bprompt enhancer\b/,
+    /\bbetter prompt\b/,
+    /\boptimi(?:ze|zes|zed|zing)\b.*\bprompt\b/,
+    /\benhance(?:s|d|ing)?\b.*\bit\b/,
+    /\bimprov(?:e|es|ed|ing)\b.*\bit\b/,
+  ]);
+  if (Number.isFinite(enhancePromptIndex) && mentionsPrompt) {
+    candidates.push({
+      index: enhancePromptIndex,
+      operation: {
+        kind: "enhance-prompt",
+        summary: "Enhance the user's prompt before generation.",
+        inputKind: "text",
+        outputKind: "text",
+        requiresUserInput: true,
+        requestedFormat: null,
+      },
+    });
+  }
 
   const editIndex = findMatchIndex(text, [
     /\bedit(?:s|ing|ed)?\b/,
@@ -77,7 +106,6 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     /\bmake(?:s|ing)?\b/,
     /\bproduce(?:s|d|ing)?\b/,
   ]);
-  const mentionsPrompt = /\bprompt\b|text prompt|type a prompt/.test(text);
   const mentionsUpload = /upload|uploaded|input image|image file|this image/.test(text);
   if (!mentionsUpload && (Number.isFinite(generateIndex) || mentionsPrompt)) {
     if (domain === "image") {
@@ -116,7 +144,13 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     }
   }
 
-  return Array.from(uniqueByKind.values()).sort((a, b) => a.index - b.index).map((entry) => entry.operation);
+  return Array.from(uniqueByKind.values())
+    .sort((a, b) => {
+      if (shouldSortBefore(b.operation.kind, a.operation.kind)) return -1;
+      if (shouldSortBefore(a.operation.kind, b.operation.kind)) return 1;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.operation);
 }
 
 export function parseCompilerIntent(userRequest: string): CompilerIntent {
@@ -183,7 +217,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   const requiredFields: string[] = [];
   if (hasUserUpload) requiredFields.push("image_upload");
   if (transformOperations.some((operation) => operation.kind === "edit-image")) requiredFields.push("edit_prompt");
-  if (transformOperations.some((operation) => operation.kind === "generate-image" || operation.kind === "generate-video")) requiredFields.push("prompt");
+  if (transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind))) requiredFields.push("prompt");
   if (hasExport && !format) requiredFields.push("output_format");
 
   const outputKind = hasExport ? "file" : domain === "video" ? "video" : hasWorkflowIntent ? "image" : "unknown";
@@ -192,8 +226,8 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
     domain,
     originalRequest: userRequest,
     input: {
-      source: hasUserUpload ? "user_upload" : transformOperations.some((operation) => operation.kind === "generate-image" || operation.kind === "generate-video") ? "prompt" : "unknown",
-      kind: hasUserUpload ? "file" : transformOperations.some((operation) => operation.kind === "generate-image" || operation.kind === "generate-video") ? "text" : "unknown",
+      source: hasUserUpload ? "user_upload" : transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind)) ? "prompt" : "unknown",
+      kind: hasUserUpload ? "file" : transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind)) ? "text" : "unknown",
     },
     operations,
     output: {

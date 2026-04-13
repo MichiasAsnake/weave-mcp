@@ -5,6 +5,7 @@ import {
   selectImageEditCandidates,
   selectImportCandidates,
   selectOutputCandidates,
+  selectPromptEnhancerCandidates,
   selectTextToImageCandidates,
   selectTextToVideoCandidates,
   selectUpscaleCandidates,
@@ -29,6 +30,8 @@ function selectOperationCandidates(
   availableKinds: Set<ValueKind>,
 ): string[] {
   switch (operation.kind) {
+    case "enhance-prompt":
+      return selectPromptEnhancerCandidates(registry);
     case "upscale-image":
       return selectUpscaleCandidates(registry, requestText, availableKinds);
     case "edit-image":
@@ -63,6 +66,7 @@ export function matchCompilerCapabilities(
     trace.push({ stage: "match", detail: `import candidates=${importIds.join(',')}` });
     availableKinds = getProducedKinds(importIds, index);
   }
+
   const transformOperations = intent.operations.filter((operation) => operation.kind !== "upload" && operation.kind !== "export" && operation.kind !== "output-result");
 
   for (const operation of transformOperations) {
