@@ -617,6 +617,8 @@ export function buildFinalizeRevisionPrompt(
   state: OrchestratorState,
   registry: NormalizedRegistrySnapshot,
 ): string {
+  const registryCatalog = buildRegistryDefinitionCatalogForLLM(registry);
+
   return [
     `User request: ${state.userRequest}`,
     "",
@@ -624,9 +626,24 @@ export function buildFinalizeRevisionPrompt(
     "",
     `Graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
     "",
-    "Propose only the atomic tool calls needed to address the semantic gaps.",
+    "## Available Node Definitions (copy definitionId exactly)",
+    "```text",
+    registryCatalog,
+    "```",
     "",
-    "IMPORTANT: You MUST emit at least one tool call in `proposedToolCalls`. Returning an empty array is treated as a failure. Close each semantic gap with a concrete tool call.",
+    "## create-node",
+    "REQUIRED fields (all MUST be non-null strings):",
+    "- `definitionId`: MUST be one of the exact definitionId strings from the registry above. Copy exactly.",
+    "- `displayName`: MUST be the exact displayName from the registry for that definitionId.",
+    "- `params`: array of `{ key, value }` or empty array `[]`.",
+    "",
+    "## set-app-mode-field",
+    "PREREQUISITE: Target node MUST already exist in the working graph.",
+    "REQUIRED fields: `fieldKey`, `fieldLabel`, `bindingNodeId`, `bindingKey`, `bindingType`.",
+    "",
+    "Propose only the atomic tool calls needed to address the semantic gaps.",
+    "IMPORTANT: Use ONLY definitionIds from the registry above. Never invent IDs.",
+    "You MUST emit at least one tool call in `proposedToolCalls`.",
   ].join("\n");
 }
 
