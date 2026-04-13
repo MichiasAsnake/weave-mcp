@@ -214,10 +214,13 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
     });
   }
 
+  const requiresReferenceImage = /reference image|reference photo|reference picture|style reference|style image/.test(text);
+
   const requiredFields: string[] = [];
   if (hasUserUpload) requiredFields.push("image_upload");
   if (transformOperations.some((operation) => operation.kind === "edit-image")) requiredFields.push("edit_prompt");
   if (transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind))) requiredFields.push("prompt");
+  if (requiresReferenceImage) requiredFields.push("reference_image");
   if (hasExport && !format) requiredFields.push("output_format");
 
   const outputKind = hasExport ? "file" : domain === "video" ? "video" : hasWorkflowIntent ? "image" : "unknown";

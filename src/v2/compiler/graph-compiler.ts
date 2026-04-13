@@ -70,16 +70,31 @@ function chooseSourceForInputPort(port: PortSpec, sources: Map<ValueKind, Output
   return null;
 }
 
+function chooseOptionalImagePort(nodeSpec: NodeSpec, connectedInputKeys: Set<string>): PortSpec | null {
+  const optionalImagePorts = nodeSpec.ports.filter((port) =>
+    port.direction === "input"
+    && !port.required
+    && !connectedInputKeys.has(port.key)
+    && ((port.accepts || [port.kind]).includes("image") || port.kind === "image"),
+  );
+  if (optionalImagePorts.length === 0) return null;
+
+  const preferred = optionalImagePorts.find((port) => !/reference|style|image_2|input_image_2/.test(port.key.toLowerCase()));
+  return preferred || optionalImagePorts[0];
+}
+
 function inferOperationAppFields(
   operationKind: CompilerOperationKind,
   nodeSpec: NodeSpec,
   nodeId: string,
   connectedInputKeys: Set<string>,
+  requestText: string,
 ): CompilerAppField[] {
   if (!["enhance-prompt", "edit-image", "generate-image", "generate-video"].includes(operationKind)) {
     return [];
   }
 
+  const fields: CompilerAppField[] = [];
   const promptPort = nodeSpec.ports.find((port) =>
     port.direction === "input"
     && port.required
@@ -93,28 +108,56 @@ function inferOperationAppFields(
     && ((port.accepts || [port.kind]).includes("text") || port.kind === "text"),
   );
 
-  if (!promptPort) {
-    return [];
+  if (promptPort) {
+    fields.push({
+      key: `${nodeId}_prompt`,
+      label: operationKind === "edit-image" ? "Edit prompt" : "Prompt",
+      control: "textarea",
+      required: true,
+      locked: false,
+      visible: true,
+      helpText: operationKind === "edit-image"
+        ? "Describe how the uploaded image should be edited."
+        : operationKind === "enhance-prompt"
+          ? "Describe what should be generated; the workflow will enhance this prompt before running the model."
+          : "Describe what should be generated.",
+      source: {
+        nodeId,
+        bindingType: "unconnected-input-port",
+        bindingKey: promptPort.key,
+      },
+    });
   }
 
-  return [{
-    key: `${nodeId}_prompt`,
-    label: operationKind === "edit-image" ? "Edit prompt" : "Prompt",
-    control: "textarea",
-    required: true,
-    locked: false,
-    visible: true,
-    helpText: operationKind === "edit-image"
-      ? "Describe how the uploaded image should be edited."
-      : operationKind === "enhance-prompt"
-        ? "Describe what should be generated; the workflow will enhance this prompt before running the model."
-        : "Describe what should be generated.",
-    source: {
-      nodeId,
-      bindingType: "unconnected-input-port",
-      bindingKey: promptPort.key,
-    },
-  }];
+  const requestMentionsReferenceImage = /reference image|reference photo|reference picture|style reference|style image|image reference/.test(requestText.toLowerCase());
+  if (requestMentionsReferenceImage) {
+    const referencePort = nodeSpec.ports.find((port) =>
+      port.direction === "input"
+      && !port.required
+      && !connectedInputKeys.has(port.key)
+      && ((port.accepts || [port.kind]).includes("image") || port.kind === "image")
+      && /reference|style|image_2|input_image_2/.test(port.key.toLowerCase()),
+    );
+
+    if (referencePort) {
+      fields.push({
+        key: `${nodeId}_${referencePort.key}`,
+        label: "Reference image",
+        control: "image-upload",
+        required: false,
+        locked: false,
+        visible: true,
+        helpText: "Upload an optional reference image to guide the result.",
+        source: {
+          nodeId,
+          bindingType: "unconnected-input-port",
+          bindingKey: referencePort.key,
+        },
+      });
+    }
+  }
+
+  return fields;
 }
 
 function getPreferredOutputKindsForOperation(operationKind: CompilerOperationKind): ValueKind[] {
@@ -284,7 +327,28 @@ function buildCompiledWorkflowPlan(args: {
       });
     }
 
-    appFields.push(...inferOperationAppFields(selection.operationKind, nodeSpec, node.nodeId, connectedInputKeys));
+    if (selection.operationKind === "edit-image") {
+      const optionalImagePort = chooseOptionalImagePort(nodeSpec, connectedInputKeys);
+      const imageSource = latestSourceByKind.get("image") || latestProducedSource;
+      if (optionalImagePort && imageSource && imageSource.valueKind === "image") {
+        connectedInputKeys.add(optionalImagePort.key);
+        graph = addEdgeToGraph(
+          graph,
+          createGraphEdgeIR({
+            from: { nodeId: imageSource.nodeId, portKey: imageSource.portKey, valueKind: imageSource.valueKind },
+            to: { nodeId: node.nodeId, portKey: optionalImagePort.key, valueKind: optionalImagePort.kind },
+          }),
+        );
+        compiledEdges.push({
+          fromStepId: imageSource.stepId,
+          toStepId: stepId,
+          fromPortKey: imageSource.portKey,
+          toPortKey: optionalImagePort.key,
+        });
+      }
+    }
+
+    appFields.push(...inferOperationAppFields(selection.operationKind, nodeSpec, node.nodeId, connectedInputKeys, args.request));
 
     latestNode = node;
     if (selection.operationKind !== "export" && selection.operationKind !== "output-result") {
