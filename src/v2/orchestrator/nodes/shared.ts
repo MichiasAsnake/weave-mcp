@@ -832,7 +832,6 @@ export function buildDraftPrompt(
   state: OrchestratorState,
   registry: NormalizedRegistrySnapshot,
 ): string {
-  const registrySummary = JSON.stringify(summarizeRegistryForLLM(registry), null, 2);
   const registryCatalog = buildConstrainedRegistryDefinitionCatalogForLLM(state, registry);
   const graphNodeTable = buildGraphNodeTableForLLM(state.workingGraph, registry);
 
@@ -846,11 +845,6 @@ export function buildDraftPrompt(
     "## Graph Nodes Available For Wiring (use nodeId, not definitionId)",
     "```text",
     graphNodeTable,
-    "```",
-    "",
-    "## Registry Overview",
-    "```json",
-    registrySummary,
     "```",
     "",
     "## Constrained Candidate Node Definitions (copy definitionId exactly)",
