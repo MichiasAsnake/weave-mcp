@@ -14,11 +14,15 @@ import { makeCompilerError } from "./errors.ts";
 import { parseCompilerIntent } from "./intent.ts";
 import { CompilerResultSchema } from "./intent-zod.ts";
 import { matchImageWorkflowCapabilities } from "./capability-match.ts";
-import type { CompiledWorkflowPlan, CompilerAppField, CompilerResult, CompilerRuntime, CompilerTraceEntry } from "./types.ts";
-
-function now(runtime: CompilerRuntime): string {
-  return runtime.now ? runtime.now() : new Date().toISOString();
-}
+import type {
+  CandidateSelection,
+  CompiledWorkflowPlan,
+  CompilerAppField,
+  CompilerOperationKind,
+  CompilerResult,
+  CompilerRuntime,
+  CompilerTraceEntry,
+} from "./types.ts";
 
 function getNodeSpec(registry: CompilerRuntime["registry"], definitionId: string): NodeSpec {
   const nodeSpec = registry.nodeSpecs.find((node) => node.source.definitionId === definitionId);
@@ -50,16 +54,115 @@ function chooseInputPort(nodeSpec: NodeSpec, fromKind: ValueKind): PortSpec {
   throw new Error(`No input port accepts ${fromKind} on ${nodeSpec.displayName}`);
 }
 
-function inferUploadField(_nodeId: string): CompilerAppField | null {
-  return null;
+function inferOperationAppFields(
+  operationKind: CompilerOperationKind,
+  nodeSpec: NodeSpec,
+  nodeId: string,
+): CompilerAppField[] {
+  if (operationKind !== "edit-image") {
+    return [];
+  }
+
+  const promptPort = nodeSpec.ports.find((port) =>
+    port.direction === "input"
+    && port.required
+    && ((port.accepts || [port.kind]).includes("text") || port.kind === "text")
+    && /prompt|instruction|text/.test(port.key.toLowerCase()),
+  ) || nodeSpec.ports.find((port) =>
+    port.direction === "input"
+    && port.required
+    && ((port.accepts || [port.kind]).includes("text") || port.kind === "text"),
+  );
+
+  if (!promptPort) {
+    return [];
+  }
+
+  return [{
+    key: `${nodeId}_prompt`,
+    label: "Edit prompt",
+    control: "textarea",
+    required: true,
+    locked: false,
+    visible: true,
+    helpText: "Describe how the uploaded image should be edited.",
+    source: {
+      nodeId,
+      bindingType: "unconnected-input-port",
+      bindingKey: promptPort.key,
+    },
+  }];
+}
+
+function getPreferredOutputKindsForOperation(operationKind: CompilerOperationKind): ValueKind[] {
+  switch (operationKind) {
+    case "upload":
+      return ["file", "image", "any"];
+    case "file-to-image":
+    case "upscale-image":
+    case "edit-image":
+      return ["image", "file", "any"];
+    case "export":
+      return ["file", "any"];
+    default:
+      return ["any"];
+  }
+}
+
+function getStepId(operationKind: CompilerOperationKind, occurrence: number): string {
+  switch (operationKind) {
+    case "upload":
+      return "upload";
+    case "file-to-image":
+      return "bridge";
+    case "upscale-image":
+      return occurrence === 1 ? "upscale" : `upscale-${occurrence}`;
+    case "edit-image":
+      return occurrence === 1 ? "edit" : `edit-${occurrence}`;
+    case "export":
+      return "export";
+    default:
+      return `step-${occurrence}`;
+  }
+}
+
+function getNodeId(operationKind: CompilerOperationKind, occurrence: number): string {
+  switch (operationKind) {
+    case "upload":
+      return "uploadImageNode";
+    case "file-to-image":
+      return "fileToImageBridgeNode";
+    case "upscale-image":
+      return occurrence === 1 ? "upscaleImageNode" : `upscaleImageNode${occurrence}`;
+    case "edit-image":
+      return occurrence === 1 ? "editImageNode" : `editImageNode${occurrence}`;
+    case "export":
+      return occurrence === 1 ? "exportResultNode" : `exportResultNode${occurrence}`;
+    default:
+      return `compiledNode${occurrence}`;
+  }
+}
+
+function getPurpose(operationKind: CompilerOperationKind): string {
+  switch (operationKind) {
+    case "upload":
+      return "user upload";
+    case "file-to-image":
+      return "file to image bridge";
+    case "upscale-image":
+      return "image upscale";
+    case "edit-image":
+      return "prompt-guided image edit";
+    case "export":
+      return "export result";
+    default:
+      return "workflow step";
+  }
 }
 
 function buildCompiledWorkflowPlan(args: {
   registry: CompilerRuntime["registry"];
-  importDefinitionId: string;
-  bridgeDefinitionId: string | null;
-  upscaleDefinitionId: string;
-  exportDefinitionId: string;
+  selections: CandidateSelection[];
   graphId?: string;
   request: string;
 }): { plan: CompiledWorkflowPlan; graph: import('../graph/types.ts').GraphIR } {
@@ -70,50 +173,69 @@ function buildCompiledWorkflowPlan(args: {
     graphId: args.graphId,
   });
 
-  const importSpec = getNodeSpec(args.registry, args.importDefinitionId);
-  const importNode = createGraphNodeIR({ nodeId: "uploadImageNode", definitionId: importSpec.source.definitionId, nodeType: importSpec.nodeType, displayName: importSpec.displayName, params: {} });
-  graph = addNodeToGraph(graph, importNode);
-
-  const compiledNodes = [{ stepId: "upload", definitionId: importSpec.source.definitionId, nodeId: importNode.nodeId, displayName: importSpec.displayName, purpose: "user upload" }];
+  const compiledNodes: CompiledWorkflowPlan["nodes"] = [];
   const compiledEdges: CompiledWorkflowPlan["edges"] = [];
   const appFields: CompilerAppField[] = [];
-  const uploadField = inferUploadField(importNode.nodeId);
-  if (uploadField) appFields.push(uploadField);
+  const occurrenceByKind = new Map<CompilerOperationKind, number>();
 
-  let previousNode = importNode;
-  let previousSpec = importSpec;
-  let previousOutputPort = chooseOutputPort(importSpec, ["file", "image", "any"]);
+  let previousNode: import('../graph/types.ts').GraphNodeIR | null = null;
+  let previousSpec: NodeSpec | null = null;
+  let previousOutputPort: PortSpec | null = null;
+  let exportNodeId: string | null = null;
 
-  if (args.bridgeDefinitionId) {
-    const bridgeSpec = getNodeSpec(args.registry, args.bridgeDefinitionId);
-    const bridgeNode = createGraphNodeIR({ nodeId: "fileToImageBridgeNode", definitionId: bridgeSpec.source.definitionId, nodeType: bridgeSpec.nodeType, displayName: bridgeSpec.displayName, params: {} });
-    graph = addNodeToGraph(graph, bridgeNode);
-    const bridgeInput = chooseInputPort(bridgeSpec, previousOutputPort.kind);
-    const bridgeOutput = chooseOutputPort(bridgeSpec, ["image", "any"]);
-    graph = addEdgeToGraph(graph, createGraphEdgeIR({ from: { nodeId: previousNode.nodeId, portKey: previousOutputPort.key, valueKind: previousOutputPort.kind }, to: { nodeId: bridgeNode.nodeId, portKey: bridgeInput.key, valueKind: bridgeInput.kind } }));
-    compiledNodes.push({ stepId: "bridge", definitionId: bridgeSpec.source.definitionId, nodeId: bridgeNode.nodeId, displayName: bridgeSpec.displayName, purpose: "file to image bridge" });
-    compiledEdges.push({ fromStepId: "upload", toStepId: "bridge", fromPortKey: previousOutputPort.key, toPortKey: bridgeInput.key });
-    previousNode = bridgeNode;
-    previousSpec = bridgeSpec;
-    previousOutputPort = bridgeOutput;
+  for (const selection of args.selections) {
+    const occurrence = (occurrenceByKind.get(selection.operationKind) || 0) + 1;
+    occurrenceByKind.set(selection.operationKind, occurrence);
+
+    const definitionId = selection.definitionIds[0];
+    const nodeSpec = getNodeSpec(args.registry, definitionId);
+    const nodeId = getNodeId(selection.operationKind, occurrence);
+    const node = createGraphNodeIR({
+      nodeId,
+      definitionId: nodeSpec.source.definitionId,
+      nodeType: nodeSpec.nodeType,
+      displayName: nodeSpec.displayName,
+      params: {},
+    });
+    graph = addNodeToGraph(graph, node);
+
+    const stepId = getStepId(selection.operationKind, occurrence);
+    compiledNodes.push({
+      stepId,
+      definitionId: nodeSpec.source.definitionId,
+      nodeId: node.nodeId,
+      displayName: nodeSpec.displayName,
+      purpose: getPurpose(selection.operationKind),
+    });
+
+    if (previousNode && previousSpec && previousOutputPort) {
+      const inputPort = chooseInputPort(nodeSpec, previousOutputPort.kind);
+      graph = addEdgeToGraph(
+        graph,
+        createGraphEdgeIR({
+          from: { nodeId: previousNode.nodeId, portKey: previousOutputPort.key, valueKind: previousOutputPort.kind },
+          to: { nodeId: node.nodeId, portKey: inputPort.key, valueKind: inputPort.kind },
+        }),
+      );
+      compiledEdges.push({
+        fromStepId: compiledNodes[compiledNodes.length - 2].stepId,
+        toStepId: stepId,
+        fromPortKey: previousOutputPort.key,
+        toPortKey: inputPort.key,
+      });
+    }
+
+    appFields.push(...inferOperationAppFields(selection.operationKind, nodeSpec, node.nodeId));
+
+    previousNode = node;
+    previousSpec = nodeSpec;
+    if (selection.operationKind !== "export") {
+      previousOutputPort = chooseOutputPort(nodeSpec, getPreferredOutputKindsForOperation(selection.operationKind));
+    } else {
+      previousOutputPort = null;
+      exportNodeId = node.nodeId;
+    }
   }
-
-  const upscaleSpec = getNodeSpec(args.registry, args.upscaleDefinitionId);
-  const upscaleNode = createGraphNodeIR({ nodeId: "upscaleImageNode", definitionId: upscaleSpec.source.definitionId, nodeType: upscaleSpec.nodeType, displayName: upscaleSpec.displayName, params: {} });
-  graph = addNodeToGraph(graph, upscaleNode);
-  const upscaleInput = chooseInputPort(upscaleSpec, previousOutputPort.kind);
-  const upscaleOutput = chooseOutputPort(upscaleSpec, ["image", "file", "any"]);
-  graph = addEdgeToGraph(graph, createGraphEdgeIR({ from: { nodeId: previousNode.nodeId, portKey: previousOutputPort.key, valueKind: previousOutputPort.kind }, to: { nodeId: upscaleNode.nodeId, portKey: upscaleInput.key, valueKind: upscaleInput.kind } }));
-  compiledNodes.push({ stepId: "upscale", definitionId: upscaleSpec.source.definitionId, nodeId: upscaleNode.nodeId, displayName: upscaleSpec.displayName, purpose: "image upscale" });
-  compiledEdges.push({ fromStepId: args.bridgeDefinitionId ? "bridge" : "upload", toStepId: "upscale", fromPortKey: previousOutputPort.key, toPortKey: upscaleInput.key });
-
-  const exportSpec = getNodeSpec(args.registry, args.exportDefinitionId);
-  const exportNode = createGraphNodeIR({ nodeId: "exportResultNode", definitionId: exportSpec.source.definitionId, nodeType: exportSpec.nodeType, displayName: exportSpec.displayName, params: {} });
-  graph = addNodeToGraph(graph, exportNode);
-  const exportInput = chooseInputPort(exportSpec, upscaleOutput.kind);
-  graph = addEdgeToGraph(graph, createGraphEdgeIR({ from: { nodeId: upscaleNode.nodeId, portKey: upscaleOutput.key, valueKind: upscaleOutput.kind }, to: { nodeId: exportNode.nodeId, portKey: exportInput.key, valueKind: exportInput.kind } }));
-  compiledNodes.push({ stepId: "export", definitionId: exportSpec.source.definitionId, nodeId: exportNode.nodeId, displayName: exportSpec.displayName, purpose: "export result" });
-  compiledEdges.push({ fromStepId: "upscale", toStepId: "export", fromPortKey: upscaleOutput.key, toPortKey: exportInput.key });
 
   graph = {
     ...graph,
@@ -128,7 +250,11 @@ function buildCompiledWorkflowPlan(args: {
     graph = setAppModeEnabled(graph, true);
     graph = setAppModeFields(graph, appFields, { exposureStrategy: "manual" as GraphAppModeIR["exposureStrategy"] });
   }
-  graph = setGraphOutputs(graph, [exportNode.nodeId]);
+  if (exportNodeId) {
+    graph = setGraphOutputs(graph, [exportNodeId]);
+  } else if (previousNode) {
+    graph = setGraphOutputs(graph, [previousNode.nodeId]);
+  }
 
   return {
     plan: {
@@ -160,22 +286,12 @@ export function compileWorkflowFromRequest(
 
   const matched = matchImageWorkflowCapabilities(intent, runtime.registry, trace);
   if (matched.ok === false) {
-    const error = matched.error;
-    return CompilerResultSchema.parse({ ok: false, intent, error, trace });
+    return CompilerResultSchema.parse({ ok: false, intent, error: matched.error, trace });
   }
-
-  const [importSelection, maybeBridgeSelection, upscaleSelection, exportSelection] = matched.selections;
-  const hasBridge = matched.selections.length === 4;
-  const bridgeSelection = hasBridge ? maybeBridgeSelection : null;
-  const realUpscaleSelection = hasBridge ? upscaleSelection : maybeBridgeSelection;
-  const realExportSelection = hasBridge ? exportSelection : upscaleSelection;
 
   const { plan, graph } = buildCompiledWorkflowPlan({
     registry: runtime.registry,
-    importDefinitionId: importSelection.definitionIds[0],
-    bridgeDefinitionId: bridgeSelection?.definitionIds[0] || null,
-    upscaleDefinitionId: realUpscaleSelection.definitionIds[0],
-    exportDefinitionId: realExportSelection.definitionIds[0],
+    selections: matched.selections,
     request: userRequest,
   });
   trace.push({ stage: "compile", detail: `nodes=${plan.nodes.map((node) => node.definitionId).join(',')}` });

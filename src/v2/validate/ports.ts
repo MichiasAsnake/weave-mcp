@@ -135,6 +135,15 @@ function validateUnconnectedRequiredInputPorts(
     incomingPortKeysByNodeId.set(edge.to.nodeId, existing);
   }
 
+  for (const field of graph.appMode.fields) {
+    if (field.source.bindingType !== "unconnected-input-port") {
+      continue;
+    }
+    const existing = incomingPortKeysByNodeId.get(field.source.nodeId) || new Set<string>();
+    existing.add(field.source.bindingKey);
+    incomingPortKeysByNodeId.set(field.source.nodeId, existing);
+  }
+
   for (const node of graph.nodes) {
     const nodeSpec = nodeSpecByDefinitionId.get(node.definitionId);
     if (!nodeSpec) {

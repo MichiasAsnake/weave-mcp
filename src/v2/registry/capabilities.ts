@@ -280,6 +280,24 @@ export function getPreferredDefinitionIdsForStep(
     ).slice(0, 1);
   }
 
+  if (looksLikeImageEdit(stepIntentText)) {
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("image-edit")),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_when_request_mentions_editing")) score += 5;
+        if (node.capabilities.ioProfile.summary === "image+text -> image") score += 7;
+        if (node.capabilities.ioProfile.requiredInputKinds.includes("image")) score += 4;
+        if (node.capabilities.ioProfile.requiredInputKinds.includes("text")) score += 3;
+        if (node.capabilities.ioProfile.summary === "text -> image") score -= 6;
+        if (node.capabilities.dependencyComplexity === "simple") score += 2;
+        if (node.capabilities.dependencyComplexity === "heavy") score -= 6;
+        if (availableKinds.has("image")) score += 2;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
   if (looksLikeUpload(stepIntentText)) {
     return rankNodeSpecs(
       registry.nodeSpecs.filter((node) => node.capabilities.planningHints.includes("prefer_for_file_import")),
@@ -797,7 +815,11 @@ function looksLikeUpload(text: string): boolean {
 }
 
 function looksLikeUpscale(text: string): boolean {
-  return /\bupscale\b|\bupscaling\b/.test(text);
+  return /\bupscale(?:s|d|ing)?\b/.test(text);
+}
+
+function looksLikeImageEdit(text: string): boolean {
+  return /\bedit(?:s|ing|ed)?\b|\bmodif(?:y|ies|ied|ying)\b|\bretouch(?:es|ing|ed)?\b|\brestyl(?:e|es|ed|ing)\b|\btransform(?:s|ed|ing)?\b|remove background|erase|replace/.test(text);
 }
 
 function looksLikeExport(text: string): boolean {

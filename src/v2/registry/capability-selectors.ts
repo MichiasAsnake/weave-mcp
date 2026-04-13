@@ -22,7 +22,22 @@ export function selectUpscaleCandidates(
 ): string[] {
   return getPreferredDefinitionIdsForStep(
     {
-      summary: "Upscale the uploaded image.",
+      summary: "Upscale the image.",
+      expectedOutputs: ["image"],
+    },
+    registry,
+    { requestText, availableKinds },
+  );
+}
+
+export function selectImageEditCandidates(
+  registry: NormalizedRegistrySnapshot,
+  requestText: string,
+  availableKinds: Iterable<ValueKind>,
+): string[] {
+  return getPreferredDefinitionIdsForStep(
+    {
+      summary: "Apply prompt-guided edits to the image.",
       expectedOutputs: ["image"],
     },
     registry,

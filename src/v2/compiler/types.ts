@@ -21,6 +21,7 @@ export type CompilerOperationKind =
   | "upload"
   | "file-to-image"
   | "upscale-image"
+  | "edit-image"
   | "export"
   | "unknown";
 
@@ -39,6 +40,7 @@ export interface CompilerRuntime {
 }
 
 export interface CandidateSelection {
+  operationKind: CompilerOperationKind;
   definitionIds: string[];
   reason: string;
 }
