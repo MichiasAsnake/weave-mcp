@@ -71,6 +71,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   const transformOperations = buildTransformOperations(text);
   const mentionsImage = /image|photo|picture/.test(text);
   const hasExport = /export|download|save/.test(text);
+  const hasWorkflowIntent = /\bapp\b|\bworkflow\b|\bflow\b|\bpipeline\b|design app|tool/.test(text) || transformOperations.length > 0;
   const hasUserUpload = /upload|uploaded|input image|image file|this image/.test(text) || (mentionsImage && transformOperations.length > 0);
 
   if (hasUserUpload) {
@@ -99,6 +100,15 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
       requiresUserInput: !format,
       requestedFormat: format,
     });
+  } else if (hasWorkflowIntent) {
+    operations.push({
+      kind: "output-result",
+      summary: "Expose the resulting image in the app output.",
+      inputKind: "image",
+      outputKind: null,
+      requiresUserInput: false,
+      requestedFormat: null,
+    });
   }
 
   const ambiguities = [];
@@ -120,7 +130,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   if (transformOperations.some((operation) => operation.kind === "edit-image")) requiredFields.push("edit_prompt");
   if (hasExport && !format) requiredFields.push("output_format");
 
-  const outputKind = hasExport ? "file" : transformOperations.length > 0 ? "image" : "unknown";
+  const outputKind = hasExport ? "file" : hasWorkflowIntent ? "image" : "unknown";
 
   return CompilerIntentSchema.parse({
     domain: mentionsImage ? "image" : "unknown",
@@ -133,7 +143,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
     output: {
       kind: outputKind,
       format,
-      delivery: hasExport ? "download" : transformOperations.length > 0 ? "preview" : "unknown",
+      delivery: hasExport ? "download" : hasWorkflowIntent ? "app_output" : "unknown",
     },
     appMode: {
       enabled: requiredFields.length > 0,

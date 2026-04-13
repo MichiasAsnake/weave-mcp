@@ -224,6 +224,20 @@ export function getPreferredDefinitionIdsForStep(
   const stepIntentText = normalizeToken([step.summary, step.expectedOutputs.join(" ")].filter(Boolean).join(" "));
   const requestAwareText = getStepIntentText(step, options.requestText);
 
+  if (looksLikeOutput(stepIntentText)) {
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("app-output") || node.capabilities.planningHints.includes("prefer_for_app_output")),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_for_app_output")) score += 8;
+        if (node.capabilities.functionalRole === "ui-binding") score += 5;
+        if (node.capabilities.ioProfile.requiredInputKinds.includes("any")) score += 4;
+        if (node.capabilities.dependencyComplexity === "simple") score += 2;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
   if (looksLikeExport(stepIntentText)) {
     const preferImageToFile = shouldPreferImageToFileExport(requestAwareText, availableKinds);
     const fileExportIntent = inferFileExportIntent(requestAwareText);
@@ -820,6 +834,10 @@ function looksLikeUpscale(text: string): boolean {
 
 function looksLikeImageEdit(text: string): boolean {
   return /\bedit(?:s|ing|ed)?\b|\bmodif(?:y|ies|ied|ying)\b|\bretouch(?:es|ing|ed)?\b|\brestyl(?:e|es|ed|ing)\b|\btransform(?:s|ed|ing)?\b|remove background|erase|replace/.test(text);
+}
+
+function looksLikeOutput(text: string): boolean {
+  return /app output|design app|workflow output|output node|expose the result|expose the resulting image|show the result in the app/.test(text);
 }
 
 function looksLikeExport(text: string): boolean {

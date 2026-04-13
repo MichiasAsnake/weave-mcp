@@ -45,6 +45,22 @@ export function selectImageEditCandidates(
   );
 }
 
+
+export function selectOutputCandidates(
+  registry: NormalizedRegistrySnapshot,
+  requestText: string,
+  availableKinds: Iterable<ValueKind>,
+): string[] {
+  return getPreferredDefinitionIdsForStep(
+    {
+      summary: "Expose the resulting image in the app output.",
+      expectedOutputs: [],
+    },
+    registry,
+    { requestText, availableKinds },
+  );
+}
+
 export function selectExportCandidates(
   registry: NormalizedRegistrySnapshot,
   requestText: string,

@@ -13,6 +13,35 @@ export interface CapabilityDocOverride {
 export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   {
     match: {
+      definitionIds: ["5AuHOOqORKUC7g1hAyOl"],
+      displayNames: ["Output"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/articles/12268300-helpers-overview",
+      "https://help.weavy.ai/en/articles/12267755-the-design-app",
+    ],
+    capabilities: {
+      functionalRole: "ui-binding",
+      taskTags: ["app-output", "workflow-output"],
+      ioProfile: {
+        summary: "any -> none",
+        requiredInputKinds: ["any"],
+        outputKinds: [],
+      },
+      dependencyComplexity: "simple",
+      hiddenDependencies: [],
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Exposes a connected workflow result in the Weavy app so the flow can be turned into a Design App.",
+      commonUseCases: [
+        "Expose the final image result in a Design App",
+        "Turn a workflow into an app-facing tool",
+      ],
+      planningHints: ["prefer_for_app_output", "prefer_near_workflow_end"],
+    },
+  },
+  {
+    match: {
       definitionIds: ["wkKkBSd0yrZGwbStnU6r"],
       displayNames: ["File"],
     },

@@ -104,6 +104,8 @@ function getPreferredOutputKindsForOperation(operationKind: CompilerOperationKin
       return ["image", "file", "any"];
     case "export":
       return ["file", "any"];
+    case "output-result":
+      return ["any"];
     default:
       return ["any"];
   }
@@ -121,6 +123,8 @@ function getStepId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "edit" : `edit-${occurrence}`;
     case "export":
       return "export";
+    case "output-result":
+      return "output";
     default:
       return `step-${occurrence}`;
   }
@@ -138,6 +142,8 @@ function getNodeId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "editImageNode" : `editImageNode${occurrence}`;
     case "export":
       return occurrence === 1 ? "exportResultNode" : `exportResultNode${occurrence}`;
+    case "output-result":
+      return occurrence === 1 ? "outputResultNode" : `outputResultNode${occurrence}`;
     default:
       return `compiledNode${occurrence}`;
   }
@@ -155,6 +161,8 @@ function getPurpose(operationKind: CompilerOperationKind): string {
       return "prompt-guided image edit";
     case "export":
       return "export result";
+    case "output-result":
+      return "app output";
     default:
       return "workflow step";
   }
@@ -229,7 +237,7 @@ function buildCompiledWorkflowPlan(args: {
 
     previousNode = node;
     previousSpec = nodeSpec;
-    if (selection.operationKind !== "export") {
+    if (selection.operationKind !== "export" && selection.operationKind !== "output-result") {
       previousOutputPort = chooseOutputPort(nodeSpec, getPreferredOutputKindsForOperation(selection.operationKind));
     } else {
       previousOutputPort = null;

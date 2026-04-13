@@ -23,6 +23,7 @@ export type CompilerOperationKind =
   | "upscale-image"
   | "edit-image"
   | "export"
+  | "output-result"
   | "unknown";
 
 export type CompilerOperation = z.infer<typeof CompilerOperationSchema>;

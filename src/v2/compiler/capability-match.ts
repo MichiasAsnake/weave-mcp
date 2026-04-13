@@ -4,6 +4,7 @@ import {
   selectExportCandidates,
   selectImageEditCandidates,
   selectImportCandidates,
+  selectOutputCandidates,
   selectUpscaleCandidates,
 } from "../registry/capability-selectors.ts";
 import { makeCompilerError } from "./errors.ts";
@@ -30,6 +31,8 @@ function selectOperationCandidates(
       return selectUpscaleCandidates(registry, requestText, availableKinds);
     case "edit-image":
       return selectImageEditCandidates(registry, requestText, availableKinds);
+    case "output-result":
+      return selectOutputCandidates(registry, requestText, availableKinds);
     default:
       return [];
   }
@@ -51,7 +54,7 @@ export function matchImageWorkflowCapabilities(
   trace.push({ stage: "match", detail: `import candidates=${importIds.join(',')}` });
 
   let availableKinds = getProducedKinds(importIds, index);
-  const transformOperations = intent.operations.filter((operation) => operation.kind !== "upload" && operation.kind !== "export");
+  const transformOperations = intent.operations.filter((operation) => operation.kind !== "upload" && operation.kind !== "export" && operation.kind !== "output-result");
 
   for (const operation of transformOperations) {
     if (operation.inputKind === "image" && !availableKinds.has("image")) {
@@ -85,14 +88,27 @@ export function matchImageWorkflowCapabilities(
     trace.push({ stage: "match", detail: `${operation.kind} candidates=${operationIds.join(',')}` });
   }
 
-  const exportOperation = intent.operations.find((operation) => operation.kind === "export");
-  if (exportOperation) {
-    const exportIds = selectExportCandidates(registry, intent.originalRequest, availableKinds, intent.output.format);
-    if (exportIds.length === 0) {
-      return { ok: false, error: makeCompilerError("missing_export_capability", "No export node can satisfy the requested output capability.", { requestedFormat: intent.output.format || null }) };
+  const terminalOperation = intent.operations.find((operation) => operation.kind === "export" || operation.kind === "output-result");
+  if (terminalOperation) {
+    const terminalIds = terminalOperation.kind === "export"
+      ? selectExportCandidates(registry, intent.originalRequest, availableKinds, intent.output.format)
+      : selectOutputCandidates(registry, intent.originalRequest, availableKinds);
+    if (terminalIds.length === 0) {
+      return {
+        ok: false,
+        error: makeCompilerError(
+          terminalOperation.kind === "export" ? "missing_export_capability" : "missing_operation_capability",
+          terminalOperation.kind === "export"
+            ? "No export node can satisfy the requested output capability."
+            : "No output node can expose the requested workflow result.",
+          terminalOperation.kind === "export"
+            ? { requestedFormat: intent.output.format || null }
+            : { operation: "output-result" },
+        ),
+      };
     }
-    selections.push({ operationKind: "export", definitionIds: exportIds, reason: "selected export candidates" });
-    trace.push({ stage: "match", detail: `export candidates=${exportIds.join(',')}` });
+    selections.push({ operationKind: terminalOperation.kind, definitionIds: terminalIds, reason: `selected ${terminalOperation.kind} candidates` });
+    trace.push({ stage: "match", detail: `${terminalOperation.kind} candidates=${terminalIds.join(',')}` });
   }
 
   return { ok: true, selections };

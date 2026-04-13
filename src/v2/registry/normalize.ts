@@ -383,8 +383,9 @@ function inferHandleKind(key: string, handle: Record<string, unknown>): ValueKin
     .filter(Boolean);
 
   if (normalizedKey === "workflow") {
-    // ASSUMPTION: `workflow` appears as a structural/internal payload edge in the live snapshot;
-    // keep it intentionally unknown until the API surface clarifies how it should validate.
+    if (tokens.some((token) => mapValueKindToken(token) === "any")) {
+      return "any";
+    }
     return "unknown";
   }
 
