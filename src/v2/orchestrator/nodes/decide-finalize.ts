@@ -1,6 +1,13 @@
 // @ts-nocheck
 import { OrchestratorStateSchema, type OrchestratorRuntime, type OrchestratorState } from "../types.ts";
-import { appendMessage, getRemainingPlannedSteps, hasUsablePlannedSteps, persistState, runFinalizeRevisionModel } from "./shared.ts";
+import {
+  appendMessage,
+  findUnsupportedPlannedExportStep,
+  getRemainingPlannedSteps,
+  hasUsablePlannedSteps,
+  persistState,
+  runFinalizeRevisionModel,
+} from "./shared.ts";
 
 export async function decideFinalizeNode(
   state: OrchestratorState,
@@ -27,6 +34,25 @@ export async function decideFinalizeNode(
     && (state.workingGraph?.nodes.length || 0) > 0
     && hasUsablePlannedSteps(state)
     && remainingSteps.length > 0;
+
+  if (!state.registrySnapshot) {
+    throw new Error("decide_finalize requires registrySnapshot to be loaded.");
+  }
+
+  const unsupportedExportStep = findUnsupportedPlannedExportStep(state, state.registrySnapshot);
+  if (unsupportedExportStep) {
+    const failedState = OrchestratorStateSchema.parse({
+      ...state,
+      status: "failed",
+      failureReason: {
+        code: "orchestrator.unsupported_export_capability",
+        message: `Registry cannot satisfy planned export step \`${unsupportedExportStep.stepId}\` (${unsupportedExportStep.summary}): ${unsupportedExportStep.reason}.`,
+        nodeName: "decide_finalize",
+      },
+    });
+    await persistState(runtime, failedState);
+    return failedState;
+  }
 
   if (state.reviewResult.satisfiesRequest && state.reviewResult.recommendedAction === "finalize") {
     const finalized = OrchestratorStateSchema.parse({
@@ -78,10 +104,6 @@ export async function decideFinalizeNode(
     });
     await persistState(runtime, replanned);
     return replanned;
-  }
-
-  if (!state.registrySnapshot) {
-    throw new Error("decide_finalize requires registrySnapshot to be loaded.");
   }
 
   const revisionDraft = await runFinalizeRevisionModel(state, state.registrySnapshot, runtime);

@@ -35,6 +35,7 @@ export const NodeFunctionalRoleSchema = z.enum([
 
 export const NodeDependencyComplexitySchema = z.enum(["simple", "moderate", "heavy"]);
 export const NodeBridgeSuitabilitySchema = z.enum(["none", "secondary", "primary"]);
+export const NodeFileExportModeSchema = z.enum(["none", "fixed", "selectable", "unknown"]);
 
 export const ParamUiSpecSchema = z.object({
   control: z
@@ -102,10 +103,19 @@ export const NodeIoProfileSchema = z.object({
   outputKinds: z.array(ValueKindSchema),
 });
 
+export const NodeFileExportCapabilitySchema = z.object({
+  mode: NodeFileExportModeSchema,
+  supportedFormats: z.array(z.string()),
+});
+
 export const NodeCapabilitySpecSchema = z.object({
   functionalRole: NodeFunctionalRoleSchema,
   taskTags: z.array(z.string()),
   ioProfile: NodeIoProfileSchema,
+  fileExport: NodeFileExportCapabilitySchema.default({
+    mode: "none",
+    supportedFormats: [],
+  }),
   dependencyComplexity: NodeDependencyComplexitySchema,
   hiddenDependencies: z.array(z.string()),
   bridgeSuitability: NodeBridgeSuitabilitySchema,

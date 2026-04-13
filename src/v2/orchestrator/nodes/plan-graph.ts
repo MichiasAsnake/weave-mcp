@@ -37,6 +37,9 @@ export async function planGraphNode(
           nodeDefinitionIds: validDefinitionIds,
         },
         state.registrySnapshot,
+        {
+          requestText: state.userRequest,
+        },
       );
 
       if (

@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { buildRegistryCapabilitySnapshot, renderRegistryCapabilityCatalog } from "./capabilities.ts";
+import {
+  buildRegistryCapabilitySnapshot,
+  refreshRegistryCapabilities,
+  renderRegistryCapabilityCatalog,
+} from "./capabilities.ts";
 import type {
   LatestRegistryPointer,
   NormalizedRegistrySnapshot,
@@ -50,7 +54,9 @@ export async function readLatestRegistryPointer(): Promise<LatestRegistryPointer
 
 export async function readNormalizedRegistrySnapshot(syncId: string): Promise<NormalizedRegistrySnapshot> {
   const snapshot = await readJsonFile<NormalizedRegistrySnapshot>(getNormalizedSnapshotPath(syncId));
-  return NormalizedRegistrySnapshotSchema.parse(snapshot);
+  return NormalizedRegistrySnapshotSchema.parse(
+    refreshRegistryCapabilities(NormalizedRegistrySnapshotSchema.parse(snapshot)),
+  );
 }
 
 export async function readLatestNormalizedRegistrySnapshot(): Promise<NormalizedRegistrySnapshot> {
@@ -58,16 +64,16 @@ export async function readLatestNormalizedRegistrySnapshot(): Promise<Normalized
   const snapshot = await readJsonFile<NormalizedRegistrySnapshot>(
     resolveRegistryArtifactPath(pointer.normalizedSnapshotPath, getNormalizedSnapshotPath(pointer.syncId)),
   );
-  return NormalizedRegistrySnapshotSchema.parse(snapshot);
+  return NormalizedRegistrySnapshotSchema.parse(
+    refreshRegistryCapabilities(NormalizedRegistrySnapshotSchema.parse(snapshot)),
+  );
 }
 
 export async function readLatestRegistryCapabilitySnapshot(): Promise<RegistryCapabilitySnapshot> {
-  const pointer = await readLatestRegistryPointer();
-  const capabilitySnapshotPath = pointer.capabilitySnapshotPath
-    ? resolveRegistryArtifactPath(pointer.capabilitySnapshotPath, getCapabilitySnapshotPath(pointer.syncId))
-    : getCapabilitySnapshotPath(pointer.syncId);
-  const snapshot = await readJsonFile<RegistryCapabilitySnapshot>(capabilitySnapshotPath);
-  return RegistryCapabilitySnapshotSchema.parse(snapshot);
+  const normalizedSnapshot = await readLatestNormalizedRegistrySnapshot();
+  return RegistryCapabilitySnapshotSchema.parse(
+    buildRegistryCapabilitySnapshot(normalizedSnapshot),
+  );
 }
 
 export async function writeRegistrySnapshots(args: {

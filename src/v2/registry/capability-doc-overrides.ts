@@ -108,8 +108,8 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
-      definitionIds: ["wyS4YwhP8zrq110ixxl7", "IyaWOYxm1VCFqfdn6tFh", "JyaWOYxm1VCFqfdn6tFi"],
-      displayNames: ["Create PSD File", "Export"],
+      definitionIds: ["wyS4YwhP8zrq110ixxl7"],
+      displayNames: ["Create PSD File"],
     },
     docs: [
       "https://help.weavy.ai/en/articles/12268300-helpers",
@@ -118,8 +118,15 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     capabilities: {
       functionalRole: "export",
       taskTags: ["image-to-file", "file-export"],
+      fileExport: {
+        mode: "fixed",
+        supportedFormats: ["psd"],
+      },
       bridgeSuitability: "secondary",
-      planningHints: ["prefer_for_image_to_file_export", "prefer_near_workflow_end"],
+      naturalLanguageDescription:
+        "Converts an image into a PSD file artifact. This is a fixed-format export, not a generic file exporter.",
+      commonUseCases: ["Export an image specifically as a PSD file"],
+      planningHints: ["prefer_for_image_to_file_export", "prefer_near_workflow_end", "fixed_file_export:psd"],
     },
   },
   {

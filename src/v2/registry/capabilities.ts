@@ -2,9 +2,10 @@ import { CAPABILITY_DOC_OVERRIDES } from "./capability-doc-overrides.ts";
 
 import type {
   NodeCapabilitySpec,
-  NodeFunctionalRole,
-  NodeDependencyComplexity,
   NodeBridgeSuitability,
+  NodeDependencyComplexity,
+  NodeFileExportCapability,
+  NodeFunctionalRole,
   NodeSpec,
   NormalizedRegistrySnapshot,
   ParamSpec,
@@ -26,10 +27,37 @@ interface CapabilityInferenceInput {
   params: ParamSpec[];
 }
 
+interface StepSelectionOptions {
+  availableKinds?: Iterable<ValueKind>;
+  requestText?: string;
+}
+
+interface FileExportIntent {
+  requestedFormats: string[];
+  requiresSelectableFormat: boolean;
+}
+
+const KNOWN_FILE_FORMATS = [
+  "psd",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "tif",
+  "tiff",
+  "bmp",
+  "svg",
+  "pdf",
+  "heic",
+  "avif",
+] as const;
+
 export function inferNodeCapabilities(input: CapabilityInferenceInput): NodeCapabilitySpec {
   const ioProfile = buildIoProfile(input.ports);
   const hiddenDependencies = inferHiddenDependencies(input, ioProfile.requiredInputKinds);
   const functionalRole = inferFunctionalRole(input, ioProfile, hiddenDependencies);
+  const fileExport = inferFileExportCapability(input, ioProfile);
   const dependencyComplexity = inferDependencyComplexity(input, ioProfile, hiddenDependencies, functionalRole);
   const taskTags = inferTaskTags(input, ioProfile, functionalRole);
   const bridgeSuitability = inferBridgeSuitability(ioProfile, dependencyComplexity, functionalRole);
@@ -39,6 +67,7 @@ export function inferNodeCapabilities(input: CapabilityInferenceInput): NodeCapa
     functionalRole,
     taskTags,
     ioProfile,
+    fileExport,
     dependencyComplexity,
     hiddenDependencies,
     bridgeSuitability,
@@ -48,6 +77,28 @@ export function inferNodeCapabilities(input: CapabilityInferenceInput): NodeCapa
   };
 
   return applyCapabilityDocOverrides(input, base);
+}
+
+export function refreshRegistryCapabilities(
+  registry: NormalizedRegistrySnapshot,
+): NormalizedRegistrySnapshot {
+  return {
+    ...registry,
+    nodeSpecs: registry.nodeSpecs.map((nodeSpec) => ({
+      ...nodeSpec,
+      capabilities: inferNodeCapabilities({
+        definitionId: nodeSpec.source.definitionId,
+        nodeType: nodeSpec.nodeType,
+        displayName: nodeSpec.displayName,
+        category: nodeSpec.category,
+        subtype: nodeSpec.subtype,
+        isGenerative: nodeSpec.isGenerative,
+        model: nodeSpec.model,
+        ports: nodeSpec.ports,
+        params: nodeSpec.params,
+      }),
+    })),
+  };
 }
 
 export function buildRegistryCapabilitySnapshot(
@@ -154,6 +205,8 @@ export function buildRegistryDefinitionCatalogForLLM(
         "|",
         `io=${capabilities.ioProfile.summary}`,
         "|",
+        `fileExport=${formatFileExportCapability(capabilities.fileExport)}`,
+        "|",
         `complexity=${capabilities.dependencyComplexity}`,
         "|",
         `tags=${capabilities.taskTags.join(",")}`,
@@ -165,25 +218,40 @@ export function buildRegistryDefinitionCatalogForLLM(
 export function getPreferredDefinitionIdsForStep(
   step: { summary: string; expectedOutputs: string[] },
   registry: NormalizedRegistrySnapshot,
-  options: { availableKinds?: Iterable<ValueKind> } = {},
+  options: StepSelectionOptions = {},
 ): string[] {
   const availableKinds = new Set(options.availableKinds || []);
-  const text = getStepIntentText(step);
+  const text = getStepIntentText(step, options.requestText);
 
   if (looksLikeExport(text)) {
-    const preferImageToFile = availableKinds.has("image") || /image/.test(text);
+    const preferImageToFile = shouldPreferImageToFileExport(text, availableKinds);
+    const fileExportIntent = inferFileExportIntent(text);
+    const compatibleCandidates = registry.nodeSpecs.filter((node) =>
+      isCompatibleExportNodeForStep(node, step, options)
+      && (
+        preferImageToFile
+          ? node.capabilities.ioProfile.summary === "image -> file"
+          : node.capabilities.functionalRole === "export" && node.capabilities.ioProfile.outputKinds.includes("file")
+      )
+    );
+
+    if (compatibleCandidates.length === 0) {
+      return [];
+    }
+
     return rankNodeSpecs(
-      registry.nodeSpecs.filter((node) => {
-        if (preferImageToFile) {
-          return node.capabilities.ioProfile.summary === "image -> file";
-        }
-        return node.capabilities.functionalRole === "export" && node.capabilities.ioProfile.outputKinds.includes("file");
-      }),
+      compatibleCandidates,
       (node) => {
         let score = 0;
         if (node.capabilities.planningHints.includes("prefer_for_image_to_file_export")) score += 5;
         if (node.capabilities.functionalRole === "export") score += 3;
         if (node.capabilities.dependencyComplexity === "simple") score += 2;
+        if (node.capabilities.fileExport.mode === "selectable") score += 6;
+        if (node.capabilities.fileExport.mode === "unknown") score += 1;
+        if (node.capabilities.fileExport.mode === "fixed" && fileExportIntent.requestedFormats.length === 0) score -= 2;
+        if (fileExportIntent.requestedFormats.some((format) => node.capabilities.fileExport.supportedFormats.includes(format))) {
+          score += 4;
+        }
         return score;
       },
     ).slice(0, 1);
@@ -238,6 +306,29 @@ export function getBridgeDefinitionIdsForKinds(
   ).slice(0, limit);
 }
 
+export function isCompatibleExportNodeForStep(
+  node: Pick<NodeSpec, "capabilities">,
+  step: { summary: string; expectedOutputs: string[] },
+  options: StepSelectionOptions = {},
+): boolean {
+  const availableKinds = new Set(options.availableKinds || []);
+  const text = getStepIntentText(step, options.requestText);
+  const preferImageToFile = shouldPreferImageToFileExport(text, availableKinds);
+
+  if (preferImageToFile && node.capabilities.ioProfile.summary !== "image -> file") {
+    return false;
+  }
+
+  if (!preferImageToFile && !node.capabilities.ioProfile.outputKinds.includes("file")) {
+    return false;
+  }
+
+  return fileExportCapabilityMatchesIntent(
+    node.capabilities.fileExport,
+    inferFileExportIntent(text),
+  );
+}
+
 function applyCapabilityDocOverrides(
   input: CapabilityInferenceInput,
   base: NodeCapabilitySpec,
@@ -251,6 +342,7 @@ function applyCapabilityDocOverrides(
     ...current,
     ...override.capabilities,
     ioProfile: override.capabilities.ioProfile || current.ioProfile,
+    fileExport: override.capabilities.fileExport || current.fileExport,
     taskTags: dedupeStrings([...(current.taskTags || []), ...(override.capabilities.taskTags || [])]),
     hiddenDependencies: dedupeStrings([
       ...(current.hiddenDependencies || []),
@@ -295,6 +387,44 @@ function buildIoProfile(ports: PortSpec[]): NodeCapabilitySpec["ioProfile"] {
     summary: `${formatKinds(requiredInputKinds)} -> ${formatKinds(outputKinds)}`,
     requiredInputKinds,
     outputKinds,
+  };
+}
+
+function inferFileExportCapability(
+  input: CapabilityInferenceInput,
+  ioProfile: NodeCapabilitySpec["ioProfile"],
+): NodeFileExportCapability {
+  if (!ioProfile.outputKinds.includes("file")) {
+    return {
+      mode: "none",
+      supportedFormats: [],
+    };
+  }
+
+  const supportedFormatsFromParams = dedupeStrings(
+    input.params
+      .filter((param) => isFileFormatSelectorParam(param))
+      .flatMap((param) => extractFormatsFromValues(param.enumValues || [])),
+  );
+
+  if (input.params.some((param) => isFileFormatSelectorParam(param))) {
+    return {
+      mode: "selectable",
+      supportedFormats: supportedFormatsFromParams,
+    };
+  }
+
+  const supportedFormatsFromName = extractFormatsFromText(getSearchText(input));
+  if (supportedFormatsFromName.length > 0) {
+    return {
+      mode: "fixed",
+      supportedFormats: supportedFormatsFromName,
+    };
+  }
+
+  return {
+    mode: "unknown",
+    supportedFormats: [],
   };
 }
 
@@ -435,6 +565,15 @@ function inferPlanningHints(
     hints.add("requires_existing_file_input");
   }
   if (taskTags.includes("image-to-file")) hints.add("prefer_for_image_to_file_export");
+  if (input.ports.some((port) => port.direction === "output" && port.kind === "file")) {
+    const fileExport = inferFileExportCapability(input, ioProfile);
+    if (fileExport.mode === "fixed") {
+      hints.add(`fixed_file_export:${fileExport.supportedFormats.join(",") || "unknown"}`);
+    }
+    if (fileExport.mode === "selectable") {
+      hints.add("supports_user_selected_file_format");
+    }
+  }
   if (dependencyComplexity === "heavy" && input.model?.name) hints.add("avoid_without_model_source");
   if (functionalRole === "export") hints.add("prefer_near_workflow_end");
   if (taskTags.includes("image-edit")) hints.add("requires_text_prompt");
@@ -537,11 +676,14 @@ function renderNodeCatalogLine(node: NodeSpec): string {
   const hidden = capabilities.hiddenDependencies.length > 0
     ? ` hidden=${capabilities.hiddenDependencies.join(",")}`
     : "";
+  const fileExport = capabilities.fileExport.mode !== "none"
+    ? ` fileExport=${formatFileExportCapability(capabilities.fileExport)}`
+    : "";
   const hints = capabilities.planningHints.length > 0
     ? ` hints=${capabilities.planningHints.join(",")}`
     : "";
 
-  return `- ${node.source.definitionId} | ${node.displayName} | io=${capabilities.ioProfile.summary} | complexity=${capabilities.dependencyComplexity} | tags=${capabilities.taskTags.join(", ")}${hidden}${hints}`;
+  return `- ${node.source.definitionId} | ${node.displayName} | io=${capabilities.ioProfile.summary} | complexity=${capabilities.dependencyComplexity} | tags=${capabilities.taskTags.join(", ")}${fileExport}${hidden}${hints}`;
 }
 
 function rankNodeSpecs(nodeSpecs: NodeSpec[], score: (nodeSpec: NodeSpec) => number): string[] {
@@ -550,8 +692,89 @@ function rankNodeSpecs(nodeSpecs: NodeSpec[], score: (nodeSpec: NodeSpec) => num
     .map((nodeSpec) => nodeSpec.source.definitionId);
 }
 
-function getStepIntentText(step: { summary: string; expectedOutputs: string[] }): string {
-  return normalizeToken(`${step.summary} ${step.expectedOutputs.join(" ")}`);
+function inferFileExportIntent(text: string): FileExportIntent {
+  return {
+    requestedFormats: extractFormatsFromText(text),
+    requiresSelectableFormat: /(?:user|caller|end user)[\s-]*(?:specified|selected|chosen)|(?:specified|selected|chosen|desired)\s+(?:file\s+)?format|choose.+format|pick.+format/.test(text),
+  };
+}
+
+function fileExportCapabilityMatchesIntent(
+  fileExport: NodeFileExportCapability,
+  intent: FileExportIntent,
+): boolean {
+  if (fileExport.mode === "none") {
+    return false;
+  }
+
+  if (intent.requiresSelectableFormat) {
+    return fileExport.mode === "selectable";
+  }
+
+  if (intent.requestedFormats.length === 0) {
+    return true;
+  }
+
+  const supportsRequestedFormats = intent.requestedFormats.every((format) =>
+    fileExport.supportedFormats.includes(format)
+  );
+
+  if (fileExport.mode === "selectable") {
+    return fileExport.supportedFormats.length === 0 || supportsRequestedFormats;
+  }
+
+  if (fileExport.mode === "fixed") {
+    return supportsRequestedFormats;
+  }
+
+  return false;
+}
+
+function shouldPreferImageToFileExport(text: string, availableKinds: Set<ValueKind>): boolean {
+  return availableKinds.has("image") || /image/.test(text);
+}
+
+function isFileFormatSelectorParam(param: ParamSpec): boolean {
+  return /\b(?:format|extension|file type|file format|output format)\b/.test(normalizeToken(param.key));
+}
+
+function extractFormatsFromText(text: string): string[] {
+  const formats: string[] = [];
+
+  for (const format of KNOWN_FILE_FORMATS) {
+    const pattern = new RegExp(`(?:\\.|\\b)${format}\\b`, "i");
+    if (pattern.test(text)) {
+      formats.push(format);
+    }
+  }
+
+  return dedupeStrings(formats);
+}
+
+function extractFormatsFromValues(values: unknown[]): string[] {
+  return dedupeStrings(
+    values
+      .flatMap((value) => typeof value === "string" ? extractFormatsFromText(normalizeToken(value)) : []),
+  );
+}
+
+function formatFileExportCapability(fileExport: NodeFileExportCapability): string {
+  if (fileExport.mode === "none") {
+    return "none";
+  }
+
+  if (fileExport.supportedFormats.length === 0) {
+    return fileExport.mode;
+  }
+
+  return `${fileExport.mode}(${fileExport.supportedFormats.join(",")})`;
+}
+
+function getStepIntentText(
+  step: { summary: string; expectedOutputs: string[] },
+  requestText?: string,
+): string {
+  return normalizeToken([requestText, step.summary, step.expectedOutputs.join(" ")].filter(Boolean).join(" "));
 }
 
 function looksLikeUpload(text: string): boolean {

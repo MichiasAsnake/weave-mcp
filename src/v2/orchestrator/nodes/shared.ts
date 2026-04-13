@@ -10,6 +10,7 @@ import {
   buildRegistryDefinitionCatalogForLLM as buildCapabilityDefinitionCatalogForLLM,
   getBridgeDefinitionIdsForKinds,
   getPreferredDefinitionIdsForStep as getCapabilityPreferredDefinitionIdsForStep,
+  isCompatibleExportNodeForStep,
 } from "../../registry/capabilities.ts";
 import { readLatestNormalizedRegistrySnapshot } from "../../registry/store.ts";
 import type { NormalizedRegistrySnapshot, NodeSpec, PortSpec, ValueKind } from "../../registry/types.ts";
@@ -249,7 +250,7 @@ function rankNodeSpecIds(
 export function getPreferredDefinitionIdsForStep(
   step: { summary: string; expectedOutputs: string[] },
   registry: NormalizedRegistrySnapshot,
-  options: { availableKinds?: Iterable<ValueKind> } = {},
+  options: { availableKinds?: Iterable<ValueKind>; requestText?: string } = {},
 ): string[] {
   return getCapabilityPreferredDefinitionIdsForStep(step, registry, options);
 }
@@ -257,7 +258,7 @@ export function getPreferredDefinitionIdsForStep(
 export function constrainPlanStepDefinitionIds(
   step: { summary: string; expectedOutputs: string[]; nodeDefinitionIds: string[] },
   registry: NormalizedRegistrySnapshot,
-  options: { availableKinds?: Iterable<ValueKind> } = {},
+  options: { availableKinds?: Iterable<ValueKind>; requestText?: string } = {},
 ): { nodeDefinitionIds: string[]; replacementReason?: string } {
   const nodeSpecByDefinitionId = new Map(
     registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
@@ -281,20 +282,14 @@ export function constrainPlanStepDefinitionIds(
   }
 
   if (stepLooksLikeExport(step)) {
-    if (currentNodeSpecs.some(isImageToFileExporterNodeSpec)) {
+    if (currentNodeSpecs.some((nodeSpec) => isCompatibleExportNodeForStep(nodeSpec, step, options))) {
       return { nodeDefinitionIds: step.nodeDefinitionIds };
     }
 
     const preferred = getPreferredDefinitionIdsForStep(step, registry, options);
     if (preferred.length > 0) {
-      const preferredNodeSpecs = preferred
-        .map((definitionId) => nodeSpecByDefinitionId.get(definitionId))
-        .filter(Boolean) as NodeSpec[];
-
       if (
-        preferred.some((definitionId) => !step.nodeDefinitionIds.includes(definitionId)) ||
-        preferredNodeSpecs.some(isImageToFileExporterNodeSpec) ||
-        !currentNodeSpecs.some(isFileExportNodeSpec)
+        preferred.some((definitionId) => !step.nodeDefinitionIds.includes(definitionId))
       ) {
         return {
           nodeDefinitionIds: preferred,
@@ -303,8 +298,11 @@ export function constrainPlanStepDefinitionIds(
       }
     }
 
-    if (currentNodeSpecs.some(isFileExportNodeSpec)) {
-      return { nodeDefinitionIds: step.nodeDefinitionIds };
+    if (currentNodeSpecs.length > 0) {
+      return {
+        nodeDefinitionIds: [],
+        replacementReason: `removed incompatible export candidate(s) for \`${step.summary}\` because the registry has no exporter compatible with the requested format constraint`,
+      };
     }
   }
 
@@ -377,7 +375,7 @@ interface RegistryCandidateCatalogEntry {
 }
 
 function buildConstrainedRegistryCandidateEntriesForState(
-  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  state: Pick<OrchestratorState, "plan" | "workingGraph" | "userRequest">,
   registry: NormalizedRegistrySnapshot,
 ): RegistryCandidateCatalogEntry[] {
   const nodeSpecByDefinitionId = new Map(
@@ -412,10 +410,14 @@ function buildConstrainedRegistryCandidateEntriesForState(
   for (const step of remainingSteps) {
     const constrainedStep = constrainPlanStepDefinitionIds(step, registry, {
       availableKinds,
+      requestText: state.userRequest,
     });
     const candidateIds = constrainedStep.nodeDefinitionIds.length > 0
       ? constrainedStep.nodeDefinitionIds
-      : getPreferredDefinitionIdsForStep(step, registry, { availableKinds });
+      : getPreferredDefinitionIdsForStep(step, registry, {
+          availableKinds,
+          requestText: state.userRequest,
+        });
 
     for (const definitionId of candidateIds) {
       pushEntry(definitionId, `planned step ${step.stepId}`);
@@ -428,22 +430,16 @@ function buildConstrainedRegistryCandidateEntriesForState(
     }
   }
 
-  if (remainingSteps.some((step) => stepLooksLikeExport(step))) {
-    for (const definitionId of getBridgeDefinitionIdsForKinds(registry, "image", "file", 2)) {
-      pushEntry(definitionId, "bridge image -> file");
-    }
-  }
-
   return Array.from(entries.values());
 }
 
 export function buildConstrainedRegistryDefinitionCatalogForLLM(
-  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  state: Pick<OrchestratorState, "plan" | "workingGraph" | "userRequest">,
   registry: NormalizedRegistrySnapshot,
 ): string {
   const entries = buildConstrainedRegistryCandidateEntriesForState(state, registry);
   if (entries.length === 0) {
-    return buildRegistryDefinitionCatalogForLLM(registry);
+    return "";
   }
 
   return buildCapabilityDefinitionCatalogForLLM(registry, {
@@ -459,7 +455,7 @@ export function buildConstrainedRegistryDefinitionCatalogForLLM(
 }
 
 function getAllowedCandidateDefinitionIdsForState(
-  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  state: Pick<OrchestratorState, "plan" | "workingGraph" | "userRequest">,
   registry: NormalizedRegistrySnapshot,
 ): Set<string> {
   return new Set(
@@ -491,6 +487,53 @@ export function hasUsablePlannedSteps(
   state: Pick<OrchestratorState, "plan">,
 ): boolean {
   return Boolean(state.plan?.steps.some((step) => step.nodeDefinitionIds.length > 0));
+}
+
+export function findUnsupportedPlannedExportStep(
+  state: Pick<OrchestratorState, "plan" | "workingGraph" | "userRequest">,
+  registry: NormalizedRegistrySnapshot,
+): { stepId: string; summary: string; reason: string } | null {
+  if (!state.plan) {
+    return null;
+  }
+
+  const availableKinds = getGraphOutputKinds(state.workingGraph, registry);
+  const nodeSpecByDefinitionId = new Map(
+    registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
+  );
+
+  for (const step of state.plan.steps) {
+    if (!stepLooksLikeExport(step)) {
+      continue;
+    }
+
+    const graphAlreadyHasCompatibleExporter = (state.workingGraph?.nodes || []).some((node) => {
+      const nodeSpec = nodeSpecByDefinitionId.get(node.definitionId);
+      return Boolean(nodeSpec && isCompatibleExportNodeForStep(nodeSpec, step, {
+        availableKinds,
+        requestText: state.userRequest,
+      }));
+    });
+
+    if (graphAlreadyHasCompatibleExporter) {
+      continue;
+    }
+
+    const compatibleDefinitionIds = getPreferredDefinitionIdsForStep(step, registry, {
+      availableKinds,
+      requestText: state.userRequest,
+    });
+
+    if (compatibleDefinitionIds.length === 0) {
+      return {
+        stepId: step.stepId,
+        summary: step.summary,
+        reason: "registry lacks an export node compatible with the requested output-format constraint",
+      };
+    }
+  }
+
+  return null;
 }
 
 export function summarizeGraphForLLM(
@@ -839,6 +882,8 @@ export function buildPlanPrompt(
     "Every entry in `steps[].nodeDefinitionIds` MUST be an exact `definitionId` copied from the available node definitions above.",
     "Do NOT emit display names, categories, or invented placeholders inside `nodeDefinitionIds`.",
     "If you cannot identify a valid definitionId for a step, return an empty array for that step's `nodeDefinitionIds` instead of guessing.",
+    "If the request includes a specific output format or a user-chosen format constraint, preserve that constraint explicitly in the export step summary and expectedOutputs.",
+    "Do not substitute a fixed-format exporter unless the catalog explicitly shows that its `fileExport=` metadata matches the requested format.",
   ].join("\n");
 }
 
@@ -872,6 +917,7 @@ export function buildDraftPrompt(
     "IMPORTANT: You MUST emit at least one tool call in `proposedToolCalls`. Returning an empty array is treated as a failure. Work from `Plan.steps` and emit one or more `create-node` / `connect-ports` calls that implement the next unbuilt step(s).",
     "Use ONLY the constrained candidate definitionIds above for `create-node`. If a needed step is not represented there, emit bridge nodes from that candidate set before wiring the final step.",
     "Never use a display name, category name, or invented placeholder where a `definitionId` is required.",
+    "Treat `fileExport=fixed(...)` nodes as format-specific. Do not use them for user-chosen or mismatched output-format requests.",
     "",
     "## create-node",
     "REQUIRED fields (all three MUST be non-null strings):",
@@ -968,6 +1014,8 @@ export function buildFinalizeRevisionPrompt(
     "```text",
     registryCatalog,
     "```",
+    "",
+    "Treat `fileExport=fixed(...)` nodes as format-specific. Do not use them for user-chosen or mismatched output-format requests.",
     "",
     "## create-node",
     "REQUIRED fields (all MUST be non-null strings):",
@@ -1172,7 +1220,7 @@ export function normalizeLLMToolCalls(
 }
 
 function filterToolCallsForCurrentState(
-  state: Pick<OrchestratorState, "plan" | "workingGraph">,
+  state: Pick<OrchestratorState, "plan" | "workingGraph" | "userRequest">,
   registry: NormalizedRegistrySnapshot,
   batch: NormalizedToolCallBatch,
 ): NormalizedToolCallBatch {

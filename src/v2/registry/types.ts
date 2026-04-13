@@ -31,6 +31,7 @@ export type NodeFunctionalRole =
 
 export type NodeDependencyComplexity = "simple" | "moderate" | "heavy";
 export type NodeBridgeSuitability = "none" | "secondary" | "primary";
+export type NodeFileExportMode = "none" | "fixed" | "selectable" | "unknown";
 
 export interface ParamUiSpec {
   control?: "textbox" | "textarea" | "slider" | "toggle" | "select" | "file";
@@ -96,10 +97,16 @@ export interface NodeIoProfile {
   outputKinds: ValueKind[];
 }
 
+export interface NodeFileExportCapability {
+  mode: NodeFileExportMode;
+  supportedFormats: string[];
+}
+
 export interface NodeCapabilitySpec {
   functionalRole: NodeFunctionalRole;
   taskTags: string[];
   ioProfile: NodeIoProfile;
+  fileExport: NodeFileExportCapability;
   dependencyComplexity: NodeDependencyComplexity;
   hiddenDependencies: string[];
   bridgeSuitability: NodeBridgeSuitability;
