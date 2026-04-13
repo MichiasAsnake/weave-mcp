@@ -1256,7 +1256,13 @@ function filterToolCallsForCurrentState(
   const knownDefinitionIds = new Set(
     registry.nodeSpecs.map((nodeSpec) => nodeSpec.source.definitionId),
   );
+  const nodeSpecByDefinitionId = new Map(
+    registry.nodeSpecs.map((nodeSpec) => [nodeSpec.source.definitionId, nodeSpec]),
+  );
   const availableNodeIds = new Set((state.workingGraph?.nodes || []).map((node) => node.nodeId));
+  const nodeDefinitionIdByNodeId = new Map(
+    (state.workingGraph?.nodes || []).map((node) => [node.nodeId, node.definitionId]),
+  );
   const normalized: OrchestratorToolCall[] = [];
   const skipped = [...batch.skipped];
 
@@ -1273,6 +1279,7 @@ function filterToolCallsForCurrentState(
 
       if (toolCall.input.nodeId) {
         availableNodeIds.add(toolCall.input.nodeId);
+        nodeDefinitionIdByNodeId.set(toolCall.input.nodeId, toolCall.input.definitionId);
       }
       normalized.push(toolCall);
       continue;
@@ -1296,6 +1303,33 @@ function filterToolCallsForCurrentState(
         });
         continue;
       }
+
+      let fromPortKey = toolCall.input.fromPortKey;
+      let toPortKey = toolCall.input.toPortKey;
+      const fromDefinitionId = nodeDefinitionIdByNodeId.get(toolCall.input.fromNodeId);
+      const toDefinitionId = nodeDefinitionIdByNodeId.get(toolCall.input.toNodeId);
+      const fromSpec = fromDefinitionId ? nodeSpecByDefinitionId.get(fromDefinitionId) : undefined;
+      const toSpec = toDefinitionId ? nodeSpecByDefinitionId.get(toDefinitionId) : undefined;
+      const fromOutputPorts = fromSpec?.ports.filter((port) => port.direction === "output") || [];
+      const toInputPorts = toSpec?.ports.filter((port) => port.direction === "input") || [];
+
+      if (!fromOutputPorts.some((port) => port.key === fromPortKey) && fromOutputPorts.length === 1) {
+        fromPortKey = fromOutputPorts[0].key;
+      }
+
+      if (!toInputPorts.some((port) => port.key === toPortKey) && toInputPorts.length === 1) {
+        toPortKey = toInputPorts[0].key;
+      }
+
+      normalized.push({
+        ...toolCall,
+        input: {
+          ...toolCall.input,
+          fromPortKey,
+          toPortKey,
+        },
+      });
+      continue;
     }
 
     if (toolCall.toolName === "set-app-mode-field") {
