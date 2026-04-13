@@ -22,6 +22,7 @@ import {
 } from "./zod.ts";
 import { ensureDir } from "../shared/fs.ts";
 import { readJsonFile, writeJsonFile } from "../shared/json.ts";
+import { normalizeRegistrySnapshot } from "./normalize.ts";
 
 export function getRegistryRootDir(): string {
   return path.join(process.cwd(), "data", "registry");
@@ -54,8 +55,9 @@ export async function readLatestRegistryPointer(): Promise<LatestRegistryPointer
 
 export async function readNormalizedRegistrySnapshot(syncId: string): Promise<NormalizedRegistrySnapshot> {
   const snapshot = await readJsonFile<NormalizedRegistrySnapshot>(getNormalizedSnapshotPath(syncId));
-  return NormalizedRegistrySnapshotSchema.parse(
-    refreshRegistryCapabilities(NormalizedRegistrySnapshotSchema.parse(snapshot)),
+  return refreshNormalizedSnapshotOnRead(
+    NormalizedRegistrySnapshotSchema.parse(snapshot),
+    getRawSnapshotPath(syncId),
   );
 }
 
@@ -64,8 +66,9 @@ export async function readLatestNormalizedRegistrySnapshot(): Promise<Normalized
   const snapshot = await readJsonFile<NormalizedRegistrySnapshot>(
     resolveRegistryArtifactPath(pointer.normalizedSnapshotPath, getNormalizedSnapshotPath(pointer.syncId)),
   );
-  return NormalizedRegistrySnapshotSchema.parse(
-    refreshRegistryCapabilities(NormalizedRegistrySnapshotSchema.parse(snapshot)),
+  return refreshNormalizedSnapshotOnRead(
+    NormalizedRegistrySnapshotSchema.parse(snapshot),
+    resolveRegistryArtifactPath(pointer.rawSnapshotPath, getRawSnapshotPath(pointer.syncId)),
   );
 }
 
@@ -140,6 +143,25 @@ function resolveRegistryArtifactPath(storedPath: string, fallbackAbsolutePath: s
   }
 
   return path.resolve(process.cwd(), storedPath);
+}
+
+async function refreshNormalizedSnapshotOnRead(
+  snapshot: NormalizedRegistrySnapshot,
+  rawSnapshotPath: string,
+): Promise<NormalizedRegistrySnapshot> {
+  try {
+    const rawSnapshot = RawRegistrySnapshotSchema.parse(
+      await readJsonFile<RawRegistrySnapshot>(rawSnapshotPath),
+    );
+
+    return NormalizedRegistrySnapshotSchema.parse(
+      normalizeRegistrySnapshot(rawSnapshot, {
+        registryVersion: snapshot.registryVersion,
+      }),
+    );
+  } catch {
+    return NormalizedRegistrySnapshotSchema.parse(refreshRegistryCapabilities(snapshot));
+  }
 }
 
 async function writeCatalogFile(filePath: string, contents: string): Promise<void> {

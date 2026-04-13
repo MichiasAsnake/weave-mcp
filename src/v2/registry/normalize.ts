@@ -406,6 +406,28 @@ function inferHandleKind(key: string, handle: Record<string, unknown>): ValueKin
     return "array";
   }
 
+  const explicitTokenKinds = Array.from(
+    new Set(
+      tokens
+        .map((token) => mapValueKindToken(token))
+        .filter((value): value is ValueKind => value != null && value !== "unknown"),
+    ),
+  );
+
+  if (explicitTokenKinds.includes("any")) {
+    // ASSUMPTION: explicit polymorphic handle metadata is a stronger signal than key-name
+    // heuristics, especially for helper/export nodes whose UI labels stay `file`.
+    return "any";
+  }
+
+  if (explicitTokenKinds.length === 1) {
+    return explicitTokenKinds[0];
+  }
+
+  if (explicitTokenKinds.length > 1) {
+    return "any";
+  }
+
   if (normalizedKey === "subject") {
     // ASSUMPTION: `subject` is image-like in the current live definitions that expose it;
     // this should be re-verified if Weave starts surfacing non-image subject inputs.
@@ -489,19 +511,6 @@ function inferHandleKind(key: string, handle: Record<string, unknown>): ValueKin
     normalizedKey.includes("_prompt_")
   ) {
     return "text";
-  }
-
-  const tokenKinds = tokens
-    .map((token) => mapValueKindToken(token))
-    .filter((value): value is ValueKind => value != null && value !== "unknown");
-  const distinctTokenKinds = Array.from(new Set(tokenKinds));
-
-  if (distinctTokenKinds.length === 1) {
-    return distinctTokenKinds[0];
-  }
-
-  if (distinctTokenKinds.length > 1) {
-    return "any";
   }
 
   if (/^(prompt|text|negative_prompt|system_prompt)$/.test(normalizedKey)) {
