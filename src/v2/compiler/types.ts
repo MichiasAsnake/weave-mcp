@@ -23,6 +23,7 @@ export type CompilerOperationKind =
   | "enhance-prompt"
   | "upscale-image"
   | "edit-image"
+  | "reference-image-edit"
   | "generate-image"
   | "generate-video"
   | "export"

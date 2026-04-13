@@ -22,7 +22,7 @@ function inferDomain(text: string): CompilerIntent["domain"] {
   if (/\bvideo\b|\bclip\b|\banimation\b|\bmovie\b/.test(text)) {
     return "video";
   }
-  if (/\bimage\b|\bphoto\b|\bpicture\b|\bportrait\b|\bart\b|\billustration\b|\bicon\b|\blogo\b/.test(text)) {
+  if (/\bimages?\b|\bphotos?\b|\bpictures?\b|\bportrait\b|\bart\b|\billustration\b|\bicon\b|\blogo\b/.test(text)) {
     return "image";
   }
   return "unknown";
@@ -60,6 +60,8 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     });
   }
 
+  const referenceEditIntent = /reference image|reference photo|reference picture|style reference|style image|another image|second image|two images|blend|combine|merge|composite/.test(text);
+
   const editIndex = findMatchIndex(text, [
     /\bedit(?:s|ing|ed)?\b/,
     /\bmodif(?:y|ies|ied|ying)\b/,
@@ -67,6 +69,10 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     /\brestyl(?:e|es|ed|ing)\b/,
     /\btransform(?:s|ed|ing)?\b/,
     /\bchange(?:s|d|ing)?\b/,
+    /\bblend(?:s|ed|ing)?\b/,
+    /\bcombin(?:e|es|ed|ing)\b/,
+    /\bmerge(?:s|d|ing)?\b/,
+    /\bcomposite(?:s|d|ing)?\b/,
     /remove background/,
     /erase/,
     /replace/,
@@ -75,8 +81,10 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     candidates.push({
       index: editIndex,
       operation: {
-        kind: "edit-image",
-        summary: "Apply prompt-guided edits to the image.",
+        kind: referenceEditIntent ? "reference-image-edit" : "edit-image",
+        summary: referenceEditIntent
+          ? "Apply prompt-guided edits to the image using a reference image."
+          : "Apply prompt-guided edits to the image.",
         inputKind: "image",
         outputKind: "image",
         requiresUserInput: true,
@@ -106,7 +114,7 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     /\bmake(?:s|ing)?\b/,
     /\bproduce(?:s|d|ing)?\b/,
   ]);
-  const mentionsUpload = /upload|uploaded|input image|image file|this image/.test(text);
+  const mentionsUpload = /upload|uploaded|input image|input images|image file|image files|this image|these images/.test(text);
   if (!mentionsUpload && (Number.isFinite(generateIndex) || mentionsPrompt)) {
     if (domain === "image") {
       candidates.push({
@@ -161,7 +169,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   const transformOperations = buildTransformOperations(text, domain);
   const hasExport = /export|download|save/.test(text);
   const hasWorkflowIntent = /\bapp\b|\bworkflow\b|\bflow\b|\bpipeline\b|design app|tool/.test(text) || transformOperations.length > 0;
-  const hasUserUpload = /upload|uploaded|input image|image file|this image/.test(text) || (domain === "image" && transformOperations.some((operation) => operation.kind === "edit-image" || operation.kind === "upscale-image"));
+  const hasUserUpload = /upload|uploaded|input image|input images|image file|image files|this image|these images/.test(text) || (domain === "image" && transformOperations.some((operation) => operation.kind === "edit-image" || operation.kind === "reference-image-edit" || operation.kind === "upscale-image"));
 
   if (hasUserUpload) {
     operations.push({
@@ -214,11 +222,11 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
     });
   }
 
-  const requiresReferenceImage = /reference image|reference photo|reference picture|style reference|style image/.test(text);
+  const requiresReferenceImage = /reference image|reference photo|reference picture|style reference|style image|another image|second image|two images|blend|combine|merge|composite/.test(text);
 
   const requiredFields: string[] = [];
   if (hasUserUpload) requiredFields.push("image_upload");
-  if (transformOperations.some((operation) => operation.kind === "edit-image")) requiredFields.push("edit_prompt");
+  if (transformOperations.some((operation) => operation.kind === "edit-image" || operation.kind === "reference-image-edit")) requiredFields.push("edit_prompt");
   if (transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind))) requiredFields.push("prompt");
   if (requiresReferenceImage) requiredFields.push("reference_image");
   if (hasExport && !format) requiredFields.push("output_format");

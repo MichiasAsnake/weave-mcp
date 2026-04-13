@@ -90,7 +90,7 @@ function inferOperationAppFields(
   connectedInputKeys: Set<string>,
   requestText: string,
 ): CompilerAppField[] {
-  if (!["enhance-prompt", "edit-image", "generate-image", "generate-video"].includes(operationKind)) {
+  if (!["enhance-prompt", "edit-image", "reference-image-edit", "generate-image", "generate-video"].includes(operationKind)) {
     return [];
   }
 
@@ -111,12 +111,12 @@ function inferOperationAppFields(
   if (promptPort) {
     fields.push({
       key: `${nodeId}_prompt`,
-      label: operationKind === "edit-image" ? "Edit prompt" : "Prompt",
+      label: operationKind === "edit-image" || operationKind === "reference-image-edit" ? "Edit prompt" : "Prompt",
       control: "textarea",
       required: true,
       locked: false,
       visible: true,
-      helpText: operationKind === "edit-image"
+      helpText: (operationKind === "edit-image" || operationKind === "reference-image-edit")
         ? "Describe how the uploaded image should be edited."
         : operationKind === "enhance-prompt"
           ? "Describe what should be generated; the workflow will enhance this prompt before running the model."
@@ -129,14 +129,18 @@ function inferOperationAppFields(
     });
   }
 
-  const requestMentionsReferenceImage = /reference image|reference photo|reference picture|style reference|style image|image reference/.test(requestText.toLowerCase());
-  if (requestMentionsReferenceImage) {
+  const requestMentionsReferenceImage = /reference image|reference photo|reference picture|style reference|style image|image reference|another image|second image|two images|blend|combine|merge|composite/.test(requestText.toLowerCase());
+  if (requestMentionsReferenceImage || operationKind === "reference-image-edit") {
     const referencePort = nodeSpec.ports.find((port) =>
       port.direction === "input"
-      && !port.required
       && !connectedInputKeys.has(port.key)
       && ((port.accepts || [port.kind]).includes("image") || port.kind === "image")
-      && /reference|style|image_2|input_image_2/.test(port.key.toLowerCase()),
+      && /reference|style|image_2|input_image_2|second/.test(port.key.toLowerCase()),
+    ) || nodeSpec.ports.find((port) =>
+      operationKind === "reference-image-edit"
+      && port.direction === "input"
+      && !connectedInputKeys.has(port.key)
+      && ((port.accepts || [port.kind]).includes("image") || port.kind === "image"),
     );
 
     if (referencePort) {
@@ -194,6 +198,8 @@ function getStepId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "upscale" : `upscale-${occurrence}`;
     case "edit-image":
       return occurrence === 1 ? "edit" : `edit-${occurrence}`;
+    case "reference-image-edit":
+      return occurrence === 1 ? "reference-edit" : `reference-edit-${occurrence}`;
     case "generate-image":
       return occurrence === 1 ? "generate-image" : `generate-image-${occurrence}`;
     case "generate-video":
@@ -219,6 +225,8 @@ function getNodeId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "upscaleImageNode" : `upscaleImageNode${occurrence}`;
     case "edit-image":
       return occurrence === 1 ? "editImageNode" : `editImageNode${occurrence}`;
+    case "reference-image-edit":
+      return occurrence === 1 ? "referenceEditImageNode" : `referenceEditImageNode${occurrence}`;
     case "generate-image":
       return occurrence === 1 ? "generateImageNode" : `generateImageNode${occurrence}`;
     case "generate-video":
@@ -244,6 +252,8 @@ function getPurpose(operationKind: CompilerOperationKind): string {
       return "image upscale";
     case "edit-image":
       return "prompt-guided image edit";
+    case "reference-image-edit":
+      return "reference-guided image edit";
     case "generate-image":
       return "text-to-image generation";
     case "generate-video":
@@ -307,6 +317,16 @@ function buildCompiledWorkflowPlan(args: {
 
     const connectedInputKeys = new Set<string>();
     for (const inputPort of nodeSpec.ports.filter((port) => port.direction === "input" && port.required)) {
+      const inputAcceptsImage = ((inputPort.accepts || [inputPort.kind]).includes("image") || inputPort.kind === "image");
+      const connectedImageInputCount = nodeSpec.ports.filter((port) =>
+        port.direction === "input"
+        && connectedInputKeys.has(port.key)
+        && ((port.accepts || [port.kind]).includes("image") || port.kind === "image"),
+      ).length;
+      if (selection.operationKind === "reference-image-edit" && inputAcceptsImage && connectedImageInputCount >= 1) {
+        continue;
+      }
+
       const source = chooseSourceForInputPort(inputPort, latestSourceByKind, latestProducedSource);
       if (!source) {
         continue;

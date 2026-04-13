@@ -75,6 +75,45 @@ export function selectImageEditCandidates(
   );
 }
 
+export function selectReferenceImageEditCandidates(
+  registry: NormalizedRegistrySnapshot,
+  requestText: string,
+  availableKinds: Iterable<ValueKind>,
+): string[] {
+  const available = new Set(availableKinds);
+  return rankDefinitionIds(
+    registry.nodeSpecs.filter((node) => {
+      const imageInputs = node.ports.filter((port) =>
+        port.direction === "input" && ((port.accepts || [port.kind]).includes("image") || port.kind === "image"),
+      );
+      const hasRequiredText = node.ports.some((port) =>
+        port.direction === "input" && port.required && ((port.accepts || [port.kind]).includes("text") || port.kind === "text"),
+      );
+      const producesImage = node.capabilities.ioProfile.outputKinds.includes("image");
+      return producesImage && hasRequiredText && imageInputs.length >= 2;
+    }),
+    (node) => {
+      let score = 0;
+      const modelText = `${node.displayName} ${node.model?.name || ""}`.toLowerCase();
+      const imageInputs = node.ports.filter((port) =>
+        port.direction === "input" && ((port.accepts || [port.kind]).includes("image") || port.kind === "image"),
+      );
+      const requiredImageInputs = imageInputs.filter((port) => port.required);
+      const referenceLikeInputs = imageInputs.filter((port) => /reference|style|image_2|input_image_2|second/.test(port.key.toLowerCase()));
+      if (requiredImageInputs.length >= 2) score += 10;
+      if (referenceLikeInputs.length > 0) score += 8;
+      if (/multi image|kontext/.test(modelText)) score += 8;
+      if (/reference|style/.test(requestText.toLowerCase()) && referenceLikeInputs.length > 0) score += 6;
+      if (/blend|combine|merge|composite/.test(requestText.toLowerCase()) && requiredImageInputs.length >= 2) score += 6;
+      if (/background/.test(modelText)) score -= 6;
+      if (available.has("image") && requiredImageInputs.length >= 1) score += 4;
+      if (node.capabilities.dependencyComplexity === "simple") score += 2;
+      if (node.capabilities.dependencyComplexity === "heavy") score -= 6;
+      return score;
+    },
+  ).slice(0, 1);
+}
+
 export function selectTextToImageCandidates(
   registry: NormalizedRegistrySnapshot,
   requestText: string,

@@ -3,6 +3,7 @@ import {
   selectBridgeCandidates,
   selectExportCandidates,
   selectImageEditCandidates,
+  selectReferenceImageEditCandidates,
   selectImportCandidates,
   selectOutputCandidates,
   selectPromptEnhancerCandidates,
@@ -36,6 +37,8 @@ function selectOperationCandidates(
       return selectUpscaleCandidates(registry, requestText, availableKinds);
     case "edit-image":
       return selectImageEditCandidates(registry, requestText, availableKinds);
+    case "reference-image-edit":
+      return selectReferenceImageEditCandidates(registry, requestText, availableKinds);
     case "generate-image":
       return selectTextToImageCandidates(registry, requestText, availableKinds);
     case "generate-video":
