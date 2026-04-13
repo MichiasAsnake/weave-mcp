@@ -155,6 +155,30 @@ export function summarizeRegistryForLLM(
   };
 }
 
+export function buildRegistryDefinitionCatalogForLLM(
+  registry: NormalizedRegistrySnapshot,
+): string {
+  return registry.nodeSpecs
+    .map((nodeSpec) => {
+      const parts = [
+        nodeSpec.source.definitionId,
+        nodeSpec.displayName,
+        nodeSpec.nodeType,
+      ];
+
+      if (nodeSpec.category) {
+        parts.push(`category=${nodeSpec.category}`);
+      }
+
+      if (nodeSpec.subtype) {
+        parts.push(`subtype=${nodeSpec.subtype}`);
+      }
+
+      return `- ${parts.join(" | ")}`;
+    })
+    .join("\n");
+}
+
 export function summarizeGraphForLLM(
   graph: GraphIR | undefined,
   registry: NormalizedRegistrySnapshot | undefined,
@@ -476,6 +500,8 @@ export function buildPlanPrompt(
   state: OrchestratorState,
   registry: NormalizedRegistrySnapshot,
 ): string {
+  const registryCatalog = buildRegistryDefinitionCatalogForLLM(registry);
+
   return [
     `User request: ${state.userRequest}`,
     "",
@@ -483,9 +509,21 @@ export function buildPlanPrompt(
     "",
     `Context artifacts: ${JSON.stringify(state.contextArtifacts, null, 2)}`,
     "",
-    `Registry summary: ${JSON.stringify(summarizeRegistryForLLM(registry), null, 2)}`,
+    `Registry overview: ${JSON.stringify({
+      registryVersion: registry.registryVersion,
+      nodeSpecCount: registry.nodeSpecs.length,
+      warningCount: registry.warnings.length,
+    }, null, 2)}`,
+    "",
+    "## Available Node Definitions (copy definitionId exactly)",
+    "```text",
+    registryCatalog,
+    "```",
     "",
     "Create a stepwise plan for building or modifying the graph. Do not emit raw Weave payloads.",
+    "Every entry in `steps[].nodeDefinitionIds` MUST be an exact `definitionId` copied from the available node definitions above.",
+    "Do NOT emit display names, categories, or invented placeholders inside `nodeDefinitionIds`.",
+    "If you cannot identify a valid definitionId for a step, return an empty array for that step's `nodeDefinitionIds` instead of guessing.",
   ].join("\n");
 }
 
@@ -494,6 +532,7 @@ export function buildDraftPrompt(
   registry: NormalizedRegistrySnapshot,
 ): string {
   const registrySummary = JSON.stringify(summarizeRegistryForLLM(registry), null, 2);
+  const registryCatalog = buildRegistryDefinitionCatalogForLLM(registry);
 
   return [
     `User request: ${state.userRequest}`,
@@ -502,20 +541,27 @@ export function buildDraftPrompt(
     "",
     `Working graph summary: ${JSON.stringify(summarizeGraphForLLM(state.workingGraph, registry), null, 2)}`,
     "",
-    "## Available Node Definitions (copy definitionId exactly):",
+    "## Registry Overview",
     "```json",
     registrySummary,
+    "```",
+    "",
+    "## Available Node Definitions (copy definitionId exactly)",
+    "```text",
+    registryCatalog,
     "```",
     "",
     "Draft the next atomic tool calls needed to move the graph toward completion.",
     "Only propose tool calls that can be executed by the atomic tool layer.",
     "",
     "IMPORTANT: You MUST emit at least one tool call in `proposedToolCalls`. Returning an empty array is treated as a failure. Work from `Plan.steps` and emit one or more `create-node` / `connect-ports` calls that implement the next unbuilt step(s).",
+    "If a plan step has an empty `nodeDefinitionIds` array, choose the best matching node from the available node definitions above and copy its exact `definitionId`.",
+    "Never use a display name, category name, or invented placeholder where a `definitionId` is required.",
     "",
     "## create-node",
     "REQUIRED fields (all three MUST be non-null strings):",
-    "- `definitionId`: MUST be one of the exact definitionId strings from the registry summary below. Copy it exactly.",
-    "- `displayName`: MUST be the exact displayName from the registry summary for that definitionId.",
+    "- `definitionId`: MUST be one of the exact definitionId strings from the available node definitions above. Copy it exactly.",
+    "- `displayName`: MUST be the exact displayName from the registry for that definitionId.",
     "- `params`: array of `{ key, value }` entries matching the node's paramSchema, or empty array `[]` if none.",
     "",
     "IMPORTANT: If you cannot find a matching definitionId in the registry, do NOT emit create-node. Ask for clarification instead.",
