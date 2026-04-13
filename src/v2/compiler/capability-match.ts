@@ -5,6 +5,8 @@ import {
   selectImageEditCandidates,
   selectImportCandidates,
   selectOutputCandidates,
+  selectTextToImageCandidates,
+  selectTextToVideoCandidates,
   selectUpscaleCandidates,
 } from "../registry/capability-selectors.ts";
 import { makeCompilerError } from "./errors.ts";
@@ -31,6 +33,10 @@ function selectOperationCandidates(
       return selectUpscaleCandidates(registry, requestText, availableKinds);
     case "edit-image":
       return selectImageEditCandidates(registry, requestText, availableKinds);
+    case "generate-image":
+      return selectTextToImageCandidates(registry, requestText, availableKinds);
+    case "generate-video":
+      return selectTextToVideoCandidates(registry, requestText, availableKinds);
     case "output-result":
       return selectOutputCandidates(registry, requestText, availableKinds);
     default:
@@ -38,7 +44,7 @@ function selectOperationCandidates(
   }
 }
 
-export function matchImageWorkflowCapabilities(
+export function matchCompilerCapabilities(
   intent: CompilerIntent,
   registry: NormalizedRegistrySnapshot,
   trace: CompilerTraceEntry[],
@@ -46,14 +52,17 @@ export function matchImageWorkflowCapabilities(
   const index = makeNodeIndex(registry);
   const selections: CandidateSelection[] = [];
 
-  const importIds = selectImportCandidates(registry, intent.originalRequest);
-  if (importIds.length === 0) {
-    return { ok: false, error: makeCompilerError("missing_import_capability", "No import node matches the requested image-upload workflow.") };
+  let availableKinds = new Set<ValueKind>();
+  const hasUpload = intent.operations.some((operation) => operation.kind === "upload");
+  if (hasUpload) {
+    const importIds = selectImportCandidates(registry, intent.originalRequest);
+    if (importIds.length === 0) {
+      return { ok: false, error: makeCompilerError("missing_import_capability", "No import node matches the requested image-upload workflow.") };
+    }
+    selections.push({ operationKind: "upload", definitionIds: importIds, reason: "selected import candidates" });
+    trace.push({ stage: "match", detail: `import candidates=${importIds.join(',')}` });
+    availableKinds = getProducedKinds(importIds, index);
   }
-  selections.push({ operationKind: "upload", definitionIds: importIds, reason: "selected import candidates" });
-  trace.push({ stage: "match", detail: `import candidates=${importIds.join(',')}` });
-
-  let availableKinds = getProducedKinds(importIds, index);
   const transformOperations = intent.operations.filter((operation) => operation.kind !== "upload" && operation.kind !== "export" && operation.kind !== "output-result");
 
   for (const operation of transformOperations) {

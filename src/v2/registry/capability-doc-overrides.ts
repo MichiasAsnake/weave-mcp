@@ -193,6 +193,44 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
+      definitionIds: ["zeSQQxxjcaVdWWunD60J"],
+      displayNames: ["GPT Image 1"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/collections/15247921-nodes-and-models-documentations",
+    ],
+    capabilities: {
+      functionalRole: "generate",
+      taskTags: ["text-to-image", "prompt-to-image", "image-generate"],
+      dependencyComplexity: "simple",
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Generates an image directly from a text prompt and returns an image result.",
+      commonUseCases: ["Create an image generator app", "Generate images from a user prompt"],
+      planningHints: ["prefer_for_prompt_to_image_app", "requires_text_prompt"],
+    },
+  },
+  {
+    match: {
+      definitionIds: ["YH3Csui0gBsRIIJuWIxU"],
+      displayNames: ["Luma Ray 2"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/collections/15247921-nodes-and-models-documentations",
+    ],
+    capabilities: {
+      functionalRole: "generate",
+      taskTags: ["text-to-video", "prompt-to-video", "video-generate"],
+      dependencyComplexity: "simple",
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Generates a video directly from a text prompt and returns a video result.",
+      commonUseCases: ["Create a prompt-to-video app", "Generate short videos from text prompts"],
+      planningHints: ["prefer_for_prompt_to_video_app", "requires_text_prompt"],
+    },
+  },
+  {
+    match: {
       modelNamePrefixes: [
         "fal-ai/nano-banana",
         "fal-ai/nano-banana-2",

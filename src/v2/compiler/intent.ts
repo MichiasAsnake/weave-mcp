@@ -3,7 +3,7 @@ import type { CompilerIntent, CompilerOperation } from "./types.ts";
 
 function extractRequestedFormat(text: string): string | null {
   const normalized = text.toLowerCase();
-  for (const format of ["png", "jpg", "jpeg", "webp", "psd"]) {
+  for (const format of ["png", "jpg", "jpeg", "webp", "psd", "mp4", "mov", "gif"]) {
     if (new RegExp(`\\b${format}\\b`, "i").test(normalized)) {
       return format;
     }
@@ -18,7 +18,17 @@ function findMatchIndex(text: string, patterns: RegExp[]): number {
   return indexes.length > 0 ? Math.min(...indexes) : Number.POSITIVE_INFINITY;
 }
 
-function buildTransformOperations(text: string): CompilerOperation[] {
+function inferDomain(text: string): CompilerIntent["domain"] {
+  if (/\bvideo\b|\bclip\b|\banimation\b|\bmovie\b/.test(text)) {
+    return "video";
+  }
+  if (/\bimage\b|\bphoto\b|\bpicture\b|\bportrait\b|\bart\b|\billustration\b|\bicon\b|\blogo\b/.test(text)) {
+    return "image";
+  }
+  return "unknown";
+}
+
+function buildTransformOperations(text: string, domain: CompilerIntent["domain"]): CompilerOperation[] {
   const candidates: Array<{ index: number; operation: CompilerOperation }> = [];
 
   const editIndex = findMatchIndex(text, [
@@ -61,18 +71,63 @@ function buildTransformOperations(text: string): CompilerOperation[] {
     });
   }
 
-  return candidates.sort((a, b) => a.index - b.index).map((entry) => entry.operation);
+  const generateIndex = findMatchIndex(text, [
+    /\bgenerate(?:s|d|ing)?\b/,
+    /\bcreate(?:s|d|ing)?\b/,
+    /\bmake(?:s|ing)?\b/,
+    /\bproduce(?:s|d|ing)?\b/,
+  ]);
+  const mentionsPrompt = /\bprompt\b|text prompt|type a prompt/.test(text);
+  const mentionsUpload = /upload|uploaded|input image|image file|this image/.test(text);
+  if (!mentionsUpload && (Number.isFinite(generateIndex) || mentionsPrompt)) {
+    if (domain === "image") {
+      candidates.push({
+        index: Number.isFinite(generateIndex) ? generateIndex : 0,
+        operation: {
+          kind: "generate-image",
+          summary: "Generate an image from a text prompt.",
+          inputKind: "text",
+          outputKind: "image",
+          requiresUserInput: true,
+          requestedFormat: null,
+        },
+      });
+    }
+    if (domain === "video") {
+      candidates.push({
+        index: Number.isFinite(generateIndex) ? generateIndex : 0,
+        operation: {
+          kind: "generate-video",
+          summary: "Generate a video from a text prompt.",
+          inputKind: "text",
+          outputKind: "video",
+          requiresUserInput: true,
+          requestedFormat: null,
+        },
+      });
+    }
+  }
+
+  const uniqueByKind = new Map<string, { index: number; operation: CompilerOperation }>();
+  for (const candidate of candidates) {
+    const existing = uniqueByKind.get(candidate.operation.kind);
+    if (!existing || candidate.index < existing.index) {
+      uniqueByKind.set(candidate.operation.kind, candidate);
+    }
+  }
+
+  return Array.from(uniqueByKind.values()).sort((a, b) => a.index - b.index).map((entry) => entry.operation);
 }
 
 export function parseCompilerIntent(userRequest: string): CompilerIntent {
   const text = userRequest.toLowerCase();
   const format = extractRequestedFormat(text);
+  const domain = inferDomain(text);
   const operations: CompilerOperation[] = [];
-  const transformOperations = buildTransformOperations(text);
-  const mentionsImage = /image|photo|picture/.test(text);
+  const transformOperations = buildTransformOperations(text, domain);
   const hasExport = /export|download|save/.test(text);
   const hasWorkflowIntent = /\bapp\b|\bworkflow\b|\bflow\b|\bpipeline\b|design app|tool/.test(text) || transformOperations.length > 0;
-  const hasUserUpload = /upload|uploaded|input image|image file|this image/.test(text) || (mentionsImage && transformOperations.length > 0);
+  const hasUserUpload = /upload|uploaded|input image|image file|this image/.test(text) || (domain === "image" && transformOperations.some((operation) => operation.kind === "edit-image" || operation.kind === "upscale-image"));
 
   if (hasUserUpload) {
     operations.push({
@@ -91,20 +146,20 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
     operations.push({
       kind: "export",
       summary: format
-        ? `Export the resulting image as ${format.toUpperCase()}.`
+        ? `Export the resulting ${domain === "video" ? "video" : "image"} as ${format.toUpperCase()}.`
         : /user-specified|specified format|chosen format/.test(text)
-          ? "Export the resulting image in a user-specified format."
-          : "Export the resulting image.",
-      inputKind: "image",
+          ? `Export the resulting ${domain === "video" ? "video" : "image"} in a user-specified format.`
+          : `Export the resulting ${domain === "video" ? "video" : "image"}.`,
+      inputKind: domain === "video" ? "video" : "image",
       outputKind: "file",
       requiresUserInput: !format,
       requestedFormat: format,
     });
-  } else if (hasWorkflowIntent) {
+  } else if (hasWorkflowIntent && domain !== "unknown") {
     operations.push({
       kind: "output-result",
-      summary: "Expose the resulting image in the app output.",
-      inputKind: "image",
+      summary: `Expose the resulting ${domain === "video" ? "video" : "image"} in the app output.`,
+      inputKind: domain === "video" ? "video" : "image",
       outputKind: null,
       requiresUserInput: false,
       requestedFormat: null,
@@ -112,32 +167,33 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   }
 
   const ambiguities = [];
-  if (!mentionsImage) {
+  if (domain === "unknown") {
     ambiguities.push({
-      code: "missing-image-domain",
-      message: "The request does not clearly describe an image workflow.",
+      code: "missing-supported-domain",
+      message: "The request does not clearly describe a supported image or video workflow.",
     });
   }
   if (transformOperations.length === 0) {
     ambiguities.push({
       code: "missing-transform-operation",
-      message: "The request does not clearly specify a supported image operation.",
+      message: "The request does not clearly specify a supported generation or transform operation.",
     });
   }
 
   const requiredFields: string[] = [];
   if (hasUserUpload) requiredFields.push("image_upload");
   if (transformOperations.some((operation) => operation.kind === "edit-image")) requiredFields.push("edit_prompt");
+  if (transformOperations.some((operation) => operation.kind === "generate-image" || operation.kind === "generate-video")) requiredFields.push("prompt");
   if (hasExport && !format) requiredFields.push("output_format");
 
-  const outputKind = hasExport ? "file" : hasWorkflowIntent ? "image" : "unknown";
+  const outputKind = hasExport ? "file" : domain === "video" ? "video" : hasWorkflowIntent ? "image" : "unknown";
 
   return CompilerIntentSchema.parse({
-    domain: mentionsImage ? "image" : "unknown",
+    domain,
     originalRequest: userRequest,
     input: {
-      source: hasUserUpload ? "user_upload" : "unknown",
-      kind: hasUserUpload ? "file" : "unknown",
+      source: hasUserUpload ? "user_upload" : transformOperations.some((operation) => operation.kind === "generate-image" || operation.kind === "generate-video") ? "prompt" : "unknown",
+      kind: hasUserUpload ? "file" : transformOperations.some((operation) => operation.kind === "generate-image" || operation.kind === "generate-video") ? "text" : "unknown",
     },
     operations,
     output: {

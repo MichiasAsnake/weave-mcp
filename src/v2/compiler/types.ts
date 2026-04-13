@@ -22,6 +22,8 @@ export type CompilerOperationKind =
   | "file-to-image"
   | "upscale-image"
   | "edit-image"
+  | "generate-image"
+  | "generate-video"
   | "export"
   | "output-result"
   | "unknown";

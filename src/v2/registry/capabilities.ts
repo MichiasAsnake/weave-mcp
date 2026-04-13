@@ -294,6 +294,47 @@ export function getPreferredDefinitionIdsForStep(
     ).slice(0, 1);
   }
 
+  if (looksLikeGenerateImage(stepIntentText)) {
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) =>
+        node.capabilities.ioProfile.outputKinds.includes("image")
+        && node.capabilities.ioProfile.requiredInputKinds.includes("text")
+        && !node.capabilities.ioProfile.requiredInputKinds.includes("image")
+      ),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_for_prompt_to_image_app")) score += 8;
+        if (node.capabilities.taskTags.includes("text-to-image") || node.capabilities.taskTags.includes("prompt-to-image")) score += 6;
+        if (node.capabilities.functionalRole === "generate") score += 4;
+        if (node.capabilities.ioProfile.summary === "text -> image") score += 5;
+        if (node.capabilities.dependencyComplexity === "simple") score += 3;
+        if (node.capabilities.dependencyComplexity === "heavy") score -= 6;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
+  if (looksLikeGenerateVideo(stepIntentText)) {
+    return rankNodeSpecs(
+      registry.nodeSpecs.filter((node) =>
+        (node.capabilities.ioProfile.outputKinds.includes("video") || node.capabilities.ioProfile.outputKinds.includes("any"))
+        && node.capabilities.ioProfile.requiredInputKinds.includes("text")
+        && !node.capabilities.ioProfile.requiredInputKinds.includes("image")
+      ),
+      (node) => {
+        let score = 0;
+        if (node.capabilities.planningHints.includes("prefer_for_prompt_to_video_app")) score += 8;
+        if (node.capabilities.taskTags.includes("text-to-video") || node.capabilities.taskTags.includes("prompt-to-video")) score += 6;
+        if (node.capabilities.functionalRole === "generate") score += 4;
+        if (node.capabilities.ioProfile.summary === "text -> video") score += 6;
+        if (node.capabilities.ioProfile.outputKinds.includes("video")) score += 4;
+        if (node.capabilities.dependencyComplexity === "simple") score += 3;
+        if (node.capabilities.dependencyComplexity === "heavy") score -= 6;
+        return score;
+      },
+    ).slice(0, 1);
+  }
+
   if (looksLikeImageEdit(stepIntentText)) {
     return rankNodeSpecs(
       registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("image-edit")),
@@ -830,6 +871,14 @@ function looksLikeUpload(text: string): boolean {
 
 function looksLikeUpscale(text: string): boolean {
   return /\bupscale(?:s|d|ing)?\b/.test(text);
+}
+
+function looksLikeGenerateImage(text: string): boolean {
+  return /\b(generate|create|make|produce)(?:s|d|ing)?\b.*\b(image|photo|picture|art|illustration|logo|icon)\b|\btext to image\b|\bprompt to image\b|\bimage generator\b/.test(text);
+}
+
+function looksLikeGenerateVideo(text: string): boolean {
+  return /\b(generate|create|make|produce)(?:s|d|ing)?\b.*\b(video|clip|animation|movie)\b|\btext to video\b|\bprompt to video\b|\bvideo generator\b/.test(text);
 }
 
 function looksLikeImageEdit(text: string): boolean {

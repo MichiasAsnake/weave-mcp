@@ -13,7 +13,7 @@ import { validateGraph } from "../validate/index.ts";
 import { makeCompilerError } from "./errors.ts";
 import { parseCompilerIntent } from "./intent.ts";
 import { CompilerResultSchema } from "./intent-zod.ts";
-import { matchImageWorkflowCapabilities } from "./capability-match.ts";
+import { matchCompilerCapabilities } from "./capability-match.ts";
 import type {
   CandidateSelection,
   CompiledWorkflowPlan,
@@ -59,7 +59,7 @@ function inferOperationAppFields(
   nodeSpec: NodeSpec,
   nodeId: string,
 ): CompilerAppField[] {
-  if (operationKind !== "edit-image") {
+  if (!["edit-image", "generate-image", "generate-video"].includes(operationKind)) {
     return [];
   }
 
@@ -80,12 +80,12 @@ function inferOperationAppFields(
 
   return [{
     key: `${nodeId}_prompt`,
-    label: "Edit prompt",
+    label: operationKind === "edit-image" ? "Edit prompt" : "Prompt",
     control: "textarea",
     required: true,
     locked: false,
     visible: true,
-    helpText: "Describe how the uploaded image should be edited.",
+    helpText: operationKind === "edit-image" ? "Describe how the uploaded image should be edited." : "Describe what should be generated.",
     source: {
       nodeId,
       bindingType: "unconnected-input-port",
@@ -101,7 +101,10 @@ function getPreferredOutputKindsForOperation(operationKind: CompilerOperationKin
     case "file-to-image":
     case "upscale-image":
     case "edit-image":
+    case "generate-image":
       return ["image", "file", "any"];
+    case "generate-video":
+      return ["video", "any"];
     case "export":
       return ["file", "any"];
     case "output-result":
@@ -121,6 +124,10 @@ function getStepId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "upscale" : `upscale-${occurrence}`;
     case "edit-image":
       return occurrence === 1 ? "edit" : `edit-${occurrence}`;
+    case "generate-image":
+      return occurrence === 1 ? "generate-image" : `generate-image-${occurrence}`;
+    case "generate-video":
+      return occurrence === 1 ? "generate-video" : `generate-video-${occurrence}`;
     case "export":
       return "export";
     case "output-result":
@@ -140,6 +147,10 @@ function getNodeId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "upscaleImageNode" : `upscaleImageNode${occurrence}`;
     case "edit-image":
       return occurrence === 1 ? "editImageNode" : `editImageNode${occurrence}`;
+    case "generate-image":
+      return occurrence === 1 ? "generateImageNode" : `generateImageNode${occurrence}`;
+    case "generate-video":
+      return occurrence === 1 ? "generateVideoNode" : `generateVideoNode${occurrence}`;
     case "export":
       return occurrence === 1 ? "exportResultNode" : `exportResultNode${occurrence}`;
     case "output-result":
@@ -159,6 +170,10 @@ function getPurpose(operationKind: CompilerOperationKind): string {
       return "image upscale";
     case "edit-image":
       return "prompt-guided image edit";
+    case "generate-image":
+      return "text-to-image generation";
+    case "generate-video":
+      return "text-to-video generation";
     case "export":
       return "export result";
     case "output-result":
@@ -283,16 +298,16 @@ export function compileWorkflowFromRequest(
   const intent = parseCompilerIntent(userRequest);
   trace.push({ stage: "intent", detail: `domain=${intent.domain} operations=${intent.operations.map((op) => op.kind).join(',')}` });
 
-  if (intent.domain !== "image") {
+  if (intent.domain !== "image" && intent.domain !== "video") {
     return CompilerResultSchema.parse({
       ok: false,
       intent,
-      error: makeCompilerError("unsupported_domain", "The compiler vertical slice currently supports image workflows only."),
+      error: makeCompilerError("unsupported_domain", "The compiler vertical slice currently supports image and video workflows only."),
       trace,
     });
   }
 
-  const matched = matchImageWorkflowCapabilities(intent, runtime.registry, trace);
+  const matched = matchCompilerCapabilities(intent, runtime.registry, trace);
   if (matched.ok === false) {
     return CompilerResultSchema.parse({ ok: false, intent, error: matched.error, trace });
   }

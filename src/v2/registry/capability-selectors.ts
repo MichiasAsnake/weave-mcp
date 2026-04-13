@@ -46,6 +46,37 @@ export function selectImageEditCandidates(
 }
 
 
+
+export function selectTextToImageCandidates(
+  registry: NormalizedRegistrySnapshot,
+  requestText: string,
+  availableKinds: Iterable<ValueKind>,
+): string[] {
+  return getPreferredDefinitionIdsForStep(
+    {
+      summary: "Generate an image from a text prompt.",
+      expectedOutputs: ["image"],
+    },
+    registry,
+    { requestText, availableKinds },
+  );
+}
+
+export function selectTextToVideoCandidates(
+  registry: NormalizedRegistrySnapshot,
+  requestText: string,
+  availableKinds: Iterable<ValueKind>,
+): string[] {
+  return getPreferredDefinitionIdsForStep(
+    {
+      summary: "Generate a video from a text prompt.",
+      expectedOutputs: ["video"],
+    },
+    registry,
+    { requestText, availableKinds },
+  );
+}
+
 export function selectOutputCandidates(
   registry: NormalizedRegistrySnapshot,
   requestText: string,
