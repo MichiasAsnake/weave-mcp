@@ -3,6 +3,8 @@ import { z } from "zod";
 import { openai } from "@ai-sdk/openai";
 
 import { createOrchestratorGraph } from "../../../../src/v2/orchestrator/graph.ts";
+import { runCompilerRouteTurn } from "../../../../src/v2/orchestrator-v3/route-adapter.ts";
+import { readLatestNormalizedRegistrySnapshot } from "../../../../src/v2/registry/store.ts";
 import type { OrchestratorState } from "../../../../src/v2/orchestrator/types.ts";
 
 export const runtime = "nodejs";
@@ -20,6 +22,18 @@ export async function POST(request: Request): Promise<Response> {
   try {
     console.log("[agent] starting orchestrator turn");
 
+    const body = RequestBodySchema.parse(await request.json());
+    const routeMode = request.headers.get("x-orchestrator-mode") || process.env.ORCHESTRATOR_MODE || "legacy";
+
+    if (routeMode === "compiler") {
+      const registry = await readLatestNormalizedRegistrySnapshot();
+      const compilerResult = runCompilerRouteTurn({
+        userRequest: body.userRequest,
+        registry,
+      });
+      return Response.json(compilerResult.body, { status: compilerResult.status });
+    }
+
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL is not configured.");
     }
@@ -28,7 +42,6 @@ export async function POST(request: Request): Promise<Response> {
       throw new Error("OPENAI_API_KEY is not configured.");
     }
 
-    const body = RequestBodySchema.parse(await request.json());
     const modelName =
       process.env.ORCHESTRATOR_MODEL ||
       process.env.OPENAI_MODEL ||
