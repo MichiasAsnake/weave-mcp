@@ -28,11 +28,12 @@ export async function applyToolStepNode(
   for (const toolCall of state.proposedToolCalls) {
     const result = applyToolCall(nextGraph, state.registrySnapshot, toolCall);
     appliedToolCalls.push(issuesToAppliedToolCall(toolCall, result, runtime));
-    resultMessages.push(
-      result.applied
-        ? `Applied ${toolCall.toolName}.`
-        : `Rejected ${toolCall.toolName} because it would leave the graph invalid.`,
-    );
+
+    const message = result.applied
+      ? `Applied ${toolCall.toolName}.`
+      : `Rejected ${toolCall.toolName}: ${result.issues?.[0]?.message || "unknown reason"}`;
+
+    resultMessages.push(message);
 
     if (!result.applied) {
       break;
