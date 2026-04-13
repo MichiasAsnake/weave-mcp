@@ -230,6 +230,8 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
       ioProfile: {
         summary: "image+text -> image",
         requiredInputKinds: ["image", "text"],
+        acceptedInputKinds: ["image", "text"],
+        optionalInputKinds: [],
         outputKinds: ["image"],
       },
       dependencyComplexity: "simple",
@@ -283,6 +285,23 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
+      definitionIds: ["bebebed5-50c1-4701-98b3-86929db21585"],
+      displayNames: ["Gemini Edit"],
+      modelNamePrefixes: ["fal-ai/nano-banana-2/edit"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/collections/15247921-nodes-and-models-documentations",
+    ],
+    capabilities: {
+      planningHints: ["prefer_for_explicit_gemini_edit", "prefer_for_reference_image_edit"],
+      commonUseCases: [
+        "Edit an uploaded image with Gemini Edit",
+        "Use a reference-style image edit model with text instructions",
+      ],
+    },
+  },
+  {
+    match: {
       modelNamePrefixes: [
         "fal-ai/nano-banana",
         "fal-ai/nano-banana-2",
@@ -295,12 +314,19 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     capabilities: {
       functionalRole: "transform",
       taskTags: ["image-edit", "prompt-guided-image-edit", "model-backed"],
+      ioProfile: {
+        summary: "text -> image",
+        requiredInputKinds: ["text"],
+        acceptedInputKinds: ["image", "text"],
+        optionalInputKinds: ["image"],
+        outputKinds: ["image"],
+      },
       dependencyComplexity: "moderate",
       bridgeSuitability: "none",
       naturalLanguageDescription:
         "Applies prompt-guided edits to an image and returns an edited image using the Nano Banana model family.",
       commonUseCases: ["Edit an existing image with text instructions", "Apply prompt-guided image transformations"],
-      planningHints: ["prefer_when_request_mentions_editing", "requires_text_prompt"],
+      planningHints: ["prefer_when_request_mentions_editing", "prefer_for_optional_image_edit", "requires_text_prompt"],
     },
   },
 ];

@@ -94,6 +94,8 @@ export interface NodeAppModeSpec {
 export interface NodeIoProfile {
   summary: string;
   requiredInputKinds: ValueKind[];
+  acceptedInputKinds?: ValueKind[];
+  optionalInputKinds?: ValueKind[];
   outputKinds: ValueKind[];
 }
 

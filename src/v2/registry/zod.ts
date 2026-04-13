@@ -100,6 +100,8 @@ export const NodeAppModeSpecSchema = z.object({
 export const NodeIoProfileSchema = z.object({
   summary: z.string(),
   requiredInputKinds: z.array(ValueKindSchema),
+  acceptedInputKinds: z.array(ValueKindSchema).optional(),
+  optionalInputKinds: z.array(ValueKindSchema).optional(),
   outputKinds: z.array(ValueKindSchema),
 });
 

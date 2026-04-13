@@ -296,11 +296,16 @@ export function getPreferredDefinitionIdsForStep(
 
   if (looksLikeGenerateImage(stepIntentText)) {
     return rankNodeSpecs(
-      registry.nodeSpecs.filter((node) =>
-        node.capabilities.ioProfile.outputKinds.includes("image")
-        && node.capabilities.ioProfile.requiredInputKinds.includes("text")
-        && !node.capabilities.ioProfile.requiredInputKinds.includes("image")
-      ),
+      registry.nodeSpecs.filter((node) => {
+        const acceptedInputKinds = node.capabilities.ioProfile.acceptedInputKinds || node.capabilities.ioProfile.requiredInputKinds;
+        return node.capabilities.ioProfile.outputKinds.includes("image")
+          && node.capabilities.ioProfile.requiredInputKinds.includes("text")
+          && !acceptedInputKinds.includes("image")
+          && (node.capabilities.functionalRole === "generate"
+            || node.capabilities.taskTags.includes("text-to-image")
+            || node.capabilities.taskTags.includes("prompt-to-image")
+            || node.capabilities.planningHints.includes("prefer_for_prompt_to_image_app"));
+      }),
       (node) => {
         let score = 0;
         if (node.capabilities.planningHints.includes("prefer_for_prompt_to_image_app")) score += 8;
@@ -316,11 +321,16 @@ export function getPreferredDefinitionIdsForStep(
 
   if (looksLikeGenerateVideo(stepIntentText)) {
     return rankNodeSpecs(
-      registry.nodeSpecs.filter((node) =>
-        (node.capabilities.ioProfile.outputKinds.includes("video") || node.capabilities.ioProfile.outputKinds.includes("any"))
-        && node.capabilities.ioProfile.requiredInputKinds.includes("text")
-        && !node.capabilities.ioProfile.requiredInputKinds.includes("image")
-      ),
+      registry.nodeSpecs.filter((node) => {
+        const acceptedInputKinds = node.capabilities.ioProfile.acceptedInputKinds || node.capabilities.ioProfile.requiredInputKinds;
+        return (node.capabilities.ioProfile.outputKinds.includes("video") || node.capabilities.ioProfile.outputKinds.includes("any"))
+          && node.capabilities.ioProfile.requiredInputKinds.includes("text")
+          && !acceptedInputKinds.includes("image")
+          && (node.capabilities.functionalRole === "generate"
+            || node.capabilities.taskTags.includes("text-to-video")
+            || node.capabilities.taskTags.includes("prompt-to-video")
+            || node.capabilities.planningHints.includes("prefer_for_prompt_to_video_app"));
+      }),
       (node) => {
         let score = 0;
         if (node.capabilities.planningHints.includes("prefer_for_prompt_to_video_app")) score += 8;
@@ -340,26 +350,40 @@ export function getPreferredDefinitionIdsForStep(
       registry.nodeSpecs.filter((node) => node.capabilities.taskTags.includes("image-edit")),
       (node) => {
         let score = 0;
-        const acceptsImageInput = node.ports.some((port) =>
-          port.direction === "input" && ((port.accepts || [port.kind]).includes("image") || port.kind === "image")
-        );
-        const requiresImageInput = node.ports.some((port) =>
-          port.direction === "input" && port.required && ((port.accepts || [port.kind]).includes("image") || port.kind === "image")
-        );
-        const acceptsTextInput = node.ports.some((port) =>
-          port.direction === "input" && ((port.accepts || [port.kind]).includes("text") || port.kind === "text")
-        );
+        const acceptedInputKinds = new Set(node.capabilities.ioProfile.acceptedInputKinds || node.capabilities.ioProfile.requiredInputKinds);
+        const optionalInputKinds = new Set(node.capabilities.ioProfile.optionalInputKinds || []);
+        const requiresImageInput = node.capabilities.ioProfile.requiredInputKinds.includes("image");
+        const acceptsImageInput = acceptedInputKinds.has("image");
+        const hasOptionalImageInput = optionalInputKinds.has("image");
+        const acceptsTextInput = acceptedInputKinds.has("text");
         const producesImage = node.capabilities.ioProfile.outputKinds.includes("image");
+        const modelText = normalizeToken([node.displayName, node.model?.name || ""].join(" "));
+        const requestMentionsUploadedImage = /upload|uploaded|this image|input image|image file/.test(requestAwareText);
+        const requestMentionsReferenceImage = /reference image|reference photo|reference picture|second image|another image|style reference/.test(requestAwareText);
+        const requestMentionsRestyle = /restyl(?:e|ed|ing)|style transfer|make it look like|in the style of/.test(requestAwareText);
+        const requestMentionsGeminiEdit = /gemini edit|gemini|nano banana/.test(requestAwareText);
+        const isGeminiEditFamily = /gemini|nano banana/.test(modelText);
 
         if (node.capabilities.planningHints.includes("prefer_for_uploaded_image_edit")) score += 8;
         if (node.capabilities.planningHints.includes("prefer_when_request_mentions_editing")) score += 5;
+        if (node.capabilities.planningHints.includes("prefer_for_optional_image_edit")) score += 4;
         if (node.capabilities.taskTags.includes("prompt-guided-image-edit")) score += 5;
         if (node.capabilities.taskTags.includes("uploaded-image-edit")) score += 4;
         if (node.capabilities.ioProfile.summary === "image+text -> image") score += 7;
         if (requiresImageInput) score += 6;
         else if (acceptsImageInput) score += 3;
+        if (hasOptionalImageInput) score += 2;
         if (acceptsTextInput) score += 4;
         if (producesImage) score += 3;
+        if (requestMentionsUploadedImage && requiresImageInput) score += 4;
+        if (requestMentionsReferenceImage && hasOptionalImageInput) score += 10;
+        if (requestMentionsRestyle && hasOptionalImageInput) score += 5;
+        if (requestMentionsRestyle && isGeminiEditFamily) score += 6;
+        if (requestMentionsGeminiEdit && isGeminiEditFamily) score += 14;
+        if (requestMentionsGeminiEdit && node.capabilities.planningHints.includes("prefer_for_explicit_gemini_edit")) score += 10;
+        if ((requestMentionsReferenceImage || requestMentionsRestyle) && node.capabilities.planningHints.includes("prefer_for_reference_image_edit")) score += 8;
+        if (requestMentionsGeminiEdit && !isGeminiEditFamily) score -= 16;
+        if ((requestMentionsReferenceImage || requestMentionsRestyle) && requiresImageInput && !hasOptionalImageInput) score -= 4;
         if (availableKinds.has("image") && requiresImageInput) score += 4;
         if (availableKinds.has("image") && acceptsImageInput) score += 2;
         if (availableKinds.has("image") && !acceptsImageInput) score -= 8;
@@ -477,8 +501,15 @@ function matchesOverride(
 }
 
 function buildIoProfile(ports: PortSpec[]): NodeCapabilitySpec["ioProfile"] {
+  const inputPorts = ports.filter((port) => port.direction === "input");
   const requiredInputKinds = dedupeKinds(
-    ports.filter((port) => port.direction === "input" && port.required).map((port) => port.kind),
+    inputPorts.filter((port) => port.required).map((port) => port.kind),
+  );
+  const acceptedInputKinds = dedupeKinds(
+    inputPorts.flatMap((port) => port.accepts || [port.kind]),
+  );
+  const optionalInputKinds = dedupeKinds(
+    inputPorts.filter((port) => !port.required).flatMap((port) => port.accepts || [port.kind]),
   );
   const outputKinds = dedupeKinds(
     ports.filter((port) => port.direction === "output").map((port) => port.kind),
@@ -487,6 +518,8 @@ function buildIoProfile(ports: PortSpec[]): NodeCapabilitySpec["ioProfile"] {
   return {
     summary: `${formatKinds(requiredInputKinds)} -> ${formatKinds(outputKinds)}`,
     requiredInputKinds,
+    acceptedInputKinds,
+    optionalInputKinds,
     outputKinds,
   };
 }
