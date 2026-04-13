@@ -281,16 +281,30 @@ export function constrainPlanStepDefinitionIds(
   }
 
   if (stepLooksLikeExport(step)) {
-    if (currentNodeSpecs.some((nodeSpec) => isImageToFileExporterNodeSpec(nodeSpec) || isFileExportNodeSpec(nodeSpec))) {
+    if (currentNodeSpecs.some(isImageToFileExporterNodeSpec)) {
       return { nodeDefinitionIds: step.nodeDefinitionIds };
     }
 
     const preferred = getPreferredDefinitionIdsForStep(step, registry, options);
     if (preferred.length > 0) {
-      return {
-        nodeDefinitionIds: preferred,
-        replacementReason: `preferred an export-capable file output node for \`${step.summary}\``,
-      };
+      const preferredNodeSpecs = preferred
+        .map((definitionId) => nodeSpecByDefinitionId.get(definitionId))
+        .filter(Boolean) as NodeSpec[];
+
+      if (
+        preferred.some((definitionId) => !step.nodeDefinitionIds.includes(definitionId)) ||
+        preferredNodeSpecs.some(isImageToFileExporterNodeSpec) ||
+        !currentNodeSpecs.some(isFileExportNodeSpec)
+      ) {
+        return {
+          nodeDefinitionIds: preferred,
+          replacementReason: `preferred an export-capable image output node for \`${step.summary}\``,
+        };
+      }
+    }
+
+    if (currentNodeSpecs.some(isFileExportNodeSpec)) {
+      return { nodeDefinitionIds: step.nodeDefinitionIds };
     }
   }
 
