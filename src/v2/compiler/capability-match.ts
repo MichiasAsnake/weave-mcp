@@ -1,12 +1,15 @@
 import type { NodeSpec, NormalizedRegistrySnapshot, ValueKind } from "../registry/types.ts";
 import {
   selectBridgeCandidates,
+  selectCompareTextToImageCandidates,
+  selectCompareTextToVideoCandidates,
   selectExportCandidates,
   selectImageEditCandidates,
   selectReferenceImageEditCandidates,
   selectImportCandidates,
   selectOutputCandidates,
   selectPromptEnhancerCandidates,
+  selectPromptSourceCandidates,
   selectTextToImageCandidates,
   selectTextToVideoCandidates,
   selectUpscaleCandidates,
@@ -31,6 +34,8 @@ function selectOperationCandidates(
   availableKinds: Set<ValueKind>,
 ): string[] {
   switch (operation.kind) {
+    case "prompt-source":
+      return selectPromptSourceCandidates(registry);
     case "enhance-prompt":
       return selectPromptEnhancerCandidates(registry);
     case "upscale-image":
@@ -41,8 +46,12 @@ function selectOperationCandidates(
       return selectReferenceImageEditCandidates(registry, requestText, availableKinds);
     case "generate-image":
       return selectTextToImageCandidates(registry, requestText, availableKinds);
+    case "compare-generate-image":
+      return selectCompareTextToImageCandidates(registry);
     case "generate-video":
       return selectTextToVideoCandidates(registry, requestText, availableKinds);
+    case "compare-generate-video":
+      return selectCompareTextToVideoCandidates(registry);
     case "output-result":
       return selectOutputCandidates(registry, requestText, availableKinds);
     default:
@@ -70,7 +79,7 @@ export function matchCompilerCapabilities(
     availableKinds = getProducedKinds(importIds, index);
   }
 
-  const transformOperations = intent.operations.filter((operation) => operation.kind !== "upload" && operation.kind !== "export" && operation.kind !== "output-result");
+  const transformOperations = intent.operations.filter((operation) => !["upload", "export", "output-result"].includes(operation.kind));
 
   for (const operation of transformOperations) {
     if (operation.inputKind === "image" && !availableKinds.has("image")) {

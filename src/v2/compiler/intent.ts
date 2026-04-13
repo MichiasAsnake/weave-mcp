@@ -30,12 +30,18 @@ function inferDomain(text: string): CompilerIntent["domain"] {
 
 function shouldSortBefore(otherKind: CompilerOperation["kind"], currentKind: CompilerOperation["kind"]): boolean {
   return currentKind === "enhance-prompt"
-    && ["edit-image", "generate-image", "generate-video"].includes(otherKind);
+    && ["edit-image", "reference-image-edit", "generate-image", "compare-generate-image", "generate-video", "compare-generate-video"].includes(otherKind);
+}
+
+function isCompareIntent(text: string): boolean {
+  return /\bcompare\b|\bcomparison\b|\bversus\b|\bvs\b|side by side|same prompt.*different models|different models|multiple models|two models/.test(text);
 }
 
 function buildTransformOperations(text: string, domain: CompilerIntent["domain"]): CompilerOperation[] {
   const candidates: Array<{ index: number; operation: CompilerOperation }> = [];
-  const mentionsPrompt = /\bprompt\b|text prompt|type a prompt/.test(text);
+  const mentionsPrompt = /\bprompt\b|text prompt|type a prompt|from a prompt|using a prompt|same prompt/.test(text);
+  const mentionsUpload = /upload|uploaded|input image|input images|image file|image files|this image|these images/.test(text);
+  const compareIntent = isCompareIntent(text) && !mentionsUpload;
 
   const enhancePromptIndex = findMatchIndex(text, [
     /\benhance(?:s|d|ing)?\b.*\bprompt\b/,
@@ -114,14 +120,15 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
     /\bmake(?:s|ing)?\b/,
     /\bproduce(?:s|d|ing)?\b/,
   ]);
-  const mentionsUpload = /upload|uploaded|input image|input images|image file|image files|this image|these images/.test(text);
   if (!mentionsUpload && (Number.isFinite(generateIndex) || mentionsPrompt)) {
     if (domain === "image") {
       candidates.push({
         index: Number.isFinite(generateIndex) ? generateIndex : 0,
         operation: {
-          kind: "generate-image",
-          summary: "Generate an image from a text prompt.",
+          kind: compareIntent ? "compare-generate-image" : "generate-image",
+          summary: compareIntent
+            ? "Generate images from the same prompt with multiple models for comparison."
+            : "Generate an image from a text prompt.",
           inputKind: "text",
           outputKind: "image",
           requiresUserInput: true,
@@ -133,8 +140,10 @@ function buildTransformOperations(text: string, domain: CompilerIntent["domain"]
       candidates.push({
         index: Number.isFinite(generateIndex) ? generateIndex : 0,
         operation: {
-          kind: "generate-video",
-          summary: "Generate a video from a text prompt.",
+          kind: compareIntent ? "compare-generate-video" : "generate-video",
+          summary: compareIntent
+            ? "Generate videos from the same prompt with multiple models for comparison."
+            : "Generate a video from a text prompt.",
           inputKind: "text",
           outputKind: "video",
           requiresUserInput: true,
@@ -170,6 +179,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   const hasExport = /export|download|save/.test(text);
   const hasWorkflowIntent = /\bapp\b|\bworkflow\b|\bflow\b|\bpipeline\b|design app|tool/.test(text) || transformOperations.length > 0;
   const hasUserUpload = /upload|uploaded|input image|input images|image file|image files|this image|these images/.test(text) || (domain === "image" && transformOperations.some((operation) => operation.kind === "edit-image" || operation.kind === "reference-image-edit" || operation.kind === "upscale-image"));
+  const needsPromptSource = transformOperations.some((operation) => operation.kind === "compare-generate-image" || operation.kind === "compare-generate-video");
 
   if (hasUserUpload) {
     operations.push({
@@ -177,6 +187,17 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
       summary: "Allow the user to upload an image file.",
       inputKind: null,
       outputKind: "file",
+      requiresUserInput: true,
+      requestedFormat: null,
+    });
+  }
+
+  if (needsPromptSource) {
+    operations.push({
+      kind: "prompt-source",
+      summary: "Provide a shared prompt source for downstream branches.",
+      inputKind: null,
+      outputKind: "text",
       requiresUserInput: true,
       requestedFormat: null,
     });
@@ -227,7 +248,7 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
   const requiredFields: string[] = [];
   if (hasUserUpload) requiredFields.push("image_upload");
   if (transformOperations.some((operation) => operation.kind === "edit-image" || operation.kind === "reference-image-edit")) requiredFields.push("edit_prompt");
-  if (transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind))) requiredFields.push("prompt");
+  if (transformOperations.some((operation) => ["enhance-prompt", "generate-image", "compare-generate-image", "generate-video", "compare-generate-video"].includes(operation.kind))) requiredFields.push("prompt");
   if (requiresReferenceImage) requiredFields.push("reference_image");
   if (hasExport && !format) requiredFields.push("output_format");
 
@@ -237,8 +258,8 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
     domain,
     originalRequest: userRequest,
     input: {
-      source: hasUserUpload ? "user_upload" : transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind)) ? "prompt" : "unknown",
-      kind: hasUserUpload ? "file" : transformOperations.some((operation) => ["enhance-prompt", "generate-image", "generate-video"].includes(operation.kind)) ? "text" : "unknown",
+      source: hasUserUpload ? "user_upload" : transformOperations.some((operation) => ["enhance-prompt", "generate-image", "compare-generate-image", "generate-video", "compare-generate-video"].includes(operation.kind)) ? "prompt" : "unknown",
+      kind: hasUserUpload ? "file" : transformOperations.some((operation) => ["enhance-prompt", "generate-image", "compare-generate-image", "generate-video", "compare-generate-video"].includes(operation.kind)) ? "text" : "unknown",
     },
     operations,
     output: {

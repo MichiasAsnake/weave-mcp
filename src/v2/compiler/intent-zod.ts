@@ -4,7 +4,7 @@ import { GraphIRSchema } from "../graph/zod.ts";
 import { ValueKindSchema } from "../registry/zod.ts";
 
 export const CompilerOperationSchema = z.object({
-  kind: z.enum(["upload", "file-to-image", "enhance-prompt", "upscale-image", "edit-image", "reference-image-edit", "generate-image", "generate-video", "export", "output-result", "unknown"]),
+  kind: z.enum(["upload", "prompt-source", "file-to-image", "enhance-prompt", "upscale-image", "edit-image", "reference-image-edit", "generate-image", "compare-generate-image", "generate-video", "compare-generate-video", "export", "output-result", "unknown"]),
   summary: z.string().min(1),
   inputKind: ValueKindSchema.nullable(),
   outputKind: ValueKindSchema.nullable(),

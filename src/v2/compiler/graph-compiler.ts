@@ -70,6 +70,17 @@ function chooseSourceForInputPort(port: PortSpec, sources: Map<ValueKind, Output
   return null;
 }
 
+function chooseInputPortForSource(nodeSpec: NodeSpec, source: OutputSource): PortSpec {
+  const inputPorts = nodeSpec.ports.filter((port) => port.direction === "input");
+  const match = inputPorts.find((port) => {
+    const acceptedKinds = port.accepts || [port.kind];
+    return acceptedKinds.includes(source.valueKind) || acceptedKinds.includes("any") || port.kind === source.valueKind || port.kind === "any";
+  });
+  if (match) return match;
+  if (inputPorts.length === 1) return inputPorts[0];
+  throw new Error(`No input port matches ${source.valueKind} on ${nodeSpec.displayName}`);
+}
+
 function chooseOptionalImagePort(nodeSpec: NodeSpec, connectedInputKeys: Set<string>): PortSpec | null {
   const optionalImagePorts = nodeSpec.ports.filter((port) =>
     port.direction === "input"
@@ -168,14 +179,18 @@ function getPreferredOutputKindsForOperation(operationKind: CompilerOperationKin
   switch (operationKind) {
     case "upload":
       return ["file", "image", "any"];
+    case "prompt-source":
     case "enhance-prompt":
       return ["text", "any"];
     case "file-to-image":
     case "upscale-image":
     case "edit-image":
+    case "reference-image-edit":
     case "generate-image":
+    case "compare-generate-image":
       return ["image", "file", "any"];
     case "generate-video":
+    case "compare-generate-video":
       return ["video", "any"];
     case "export":
       return ["file", "any"];
@@ -190,6 +205,8 @@ function getStepId(operationKind: CompilerOperationKind, occurrence: number): st
   switch (operationKind) {
     case "upload":
       return "upload";
+    case "prompt-source":
+      return occurrence === 1 ? "prompt" : `prompt-${occurrence}`;
     case "file-to-image":
       return "bridge";
     case "enhance-prompt":
@@ -202,8 +219,12 @@ function getStepId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "reference-edit" : `reference-edit-${occurrence}`;
     case "generate-image":
       return occurrence === 1 ? "generate-image" : `generate-image-${occurrence}`;
+    case "compare-generate-image":
+      return occurrence === 1 ? "compare-image" : `compare-image-${occurrence}`;
     case "generate-video":
       return occurrence === 1 ? "generate-video" : `generate-video-${occurrence}`;
+    case "compare-generate-video":
+      return occurrence === 1 ? "compare-video" : `compare-video-${occurrence}`;
     case "export":
       return "export";
     case "output-result":
@@ -217,6 +238,8 @@ function getNodeId(operationKind: CompilerOperationKind, occurrence: number): st
   switch (operationKind) {
     case "upload":
       return "uploadImageNode";
+    case "prompt-source":
+      return occurrence === 1 ? "promptSourceNode" : `promptSourceNode${occurrence}`;
     case "file-to-image":
       return "fileToImageBridgeNode";
     case "enhance-prompt":
@@ -229,8 +252,12 @@ function getNodeId(operationKind: CompilerOperationKind, occurrence: number): st
       return occurrence === 1 ? "referenceEditImageNode" : `referenceEditImageNode${occurrence}`;
     case "generate-image":
       return occurrence === 1 ? "generateImageNode" : `generateImageNode${occurrence}`;
+    case "compare-generate-image":
+      return occurrence === 1 ? "compareImageNode" : `compareImageNode${occurrence}`;
     case "generate-video":
       return occurrence === 1 ? "generateVideoNode" : `generateVideoNode${occurrence}`;
+    case "compare-generate-video":
+      return occurrence === 1 ? "compareVideoNode" : `compareVideoNode${occurrence}`;
     case "export":
       return occurrence === 1 ? "exportResultNode" : `exportResultNode${occurrence}`;
     case "output-result":
@@ -244,6 +271,8 @@ function getPurpose(operationKind: CompilerOperationKind): string {
   switch (operationKind) {
     case "upload":
       return "user upload";
+    case "prompt-source":
+      return "shared prompt input";
     case "file-to-image":
       return "file to image bridge";
     case "enhance-prompt":
@@ -256,8 +285,12 @@ function getPurpose(operationKind: CompilerOperationKind): string {
       return "reference-guided image edit";
     case "generate-image":
       return "text-to-image generation";
+    case "compare-generate-image":
+      return "multi-model image comparison";
     case "generate-video":
       return "text-to-video generation";
+    case "compare-generate-video":
+      return "multi-model video comparison";
     case "export":
       return "export result";
     case "output-result":
@@ -288,17 +321,125 @@ function buildCompiledWorkflowPlan(args: {
 
   let latestProducedSource: OutputSource | null = null;
   let latestNode: GraphNodeIR | null = null;
-  let terminalNodeId: string | null = null;
+  let terminalNodeIds: string[] = [];
+  let branchedSources: OutputSource[] = [];
 
   for (const selection of args.selections) {
     const occurrence = (occurrenceByKind.get(selection.operationKind) || 0) + 1;
     occurrenceByKind.set(selection.operationKind, occurrence);
 
+    const baseStepId = getStepId(selection.operationKind, occurrence);
+    const baseNodeId = getNodeId(selection.operationKind, occurrence);
+
+    if ((selection.operationKind === "compare-generate-image" || selection.operationKind === "compare-generate-video") && selection.definitionIds.length > 1) {
+      const nextBranchSources: OutputSource[] = [];
+      for (const [index, definitionId] of selection.definitionIds.entries()) {
+        const nodeSpec = getNodeSpec(args.registry, definitionId);
+        const nodeId = `${baseNodeId}${index + 1}`;
+        const stepId = `${baseStepId}-${index + 1}`;
+        const node = createGraphNodeIR({
+          nodeId,
+          definitionId: nodeSpec.source.definitionId,
+          nodeType: nodeSpec.nodeType,
+          displayName: nodeSpec.displayName,
+          params: {},
+        });
+        graph = addNodeToGraph(graph, node);
+        compiledNodes.push({
+          stepId,
+          definitionId: nodeSpec.source.definitionId,
+          nodeId: node.nodeId,
+          displayName: nodeSpec.displayName,
+          purpose: getPurpose(selection.operationKind),
+        });
+
+        const connectedInputKeys = new Set<string>();
+        for (const inputPort of nodeSpec.ports.filter((port) => port.direction === "input" && port.required)) {
+          const source = chooseSourceForInputPort(inputPort, latestSourceByKind, latestProducedSource);
+          if (!source) continue;
+          connectedInputKeys.add(inputPort.key);
+          graph = addEdgeToGraph(
+            graph,
+            createGraphEdgeIR({
+              from: { nodeId: source.nodeId, portKey: source.portKey, valueKind: source.valueKind },
+              to: { nodeId: node.nodeId, portKey: inputPort.key, valueKind: inputPort.kind },
+            }),
+          );
+          compiledEdges.push({
+            fromStepId: source.stepId,
+            toStepId: stepId,
+            fromPortKey: source.portKey,
+            toPortKey: inputPort.key,
+          });
+        }
+
+        const outputPort = chooseOutputPort(nodeSpec, getPreferredOutputKindsForOperation(selection.operationKind));
+        const branchSource: OutputSource = {
+          stepId,
+          nodeId: node.nodeId,
+          portKey: outputPort.key,
+          valueKind: outputPort.kind,
+        };
+        nextBranchSources.push(branchSource);
+        latestProducedSource = branchSource;
+        for (const producedKind of outputPort.produces || [outputPort.kind]) {
+          latestSourceByKind.set(producedKind, branchSource);
+        }
+        latestNode = node;
+      }
+      branchedSources = nextBranchSources;
+      continue;
+    }
+
+    if ((selection.operationKind === "output-result" || selection.operationKind === "export") && branchedSources.length > 0) {
+      const definitionId = selection.definitionIds[0];
+      const nodeSpec = getNodeSpec(args.registry, definitionId);
+      terminalNodeIds = [];
+      for (const [index, source] of branchedSources.entries()) {
+        const nodeId = `${baseNodeId}${index + 1}`;
+        const stepId = `${baseStepId}-${index + 1}`;
+        const node = createGraphNodeIR({
+          nodeId,
+          definitionId: nodeSpec.source.definitionId,
+          nodeType: nodeSpec.nodeType,
+          displayName: nodeSpec.displayName,
+          params: {},
+        });
+        graph = addNodeToGraph(graph, node);
+        compiledNodes.push({
+          stepId,
+          definitionId: nodeSpec.source.definitionId,
+          nodeId: node.nodeId,
+          displayName: nodeSpec.displayName,
+          purpose: getPurpose(selection.operationKind),
+        });
+
+        const inputPort = chooseInputPortForSource(nodeSpec, source);
+        graph = addEdgeToGraph(
+          graph,
+          createGraphEdgeIR({
+            from: { nodeId: source.nodeId, portKey: source.portKey, valueKind: source.valueKind },
+            to: { nodeId: node.nodeId, portKey: inputPort.key, valueKind: inputPort.kind },
+          }),
+        );
+        compiledEdges.push({
+          fromStepId: source.stepId,
+          toStepId: stepId,
+          fromPortKey: source.portKey,
+          toPortKey: inputPort.key,
+        });
+
+        latestNode = node;
+        terminalNodeIds.push(node.nodeId);
+      }
+      branchedSources = [];
+      continue;
+    }
+
     const definitionId = selection.definitionIds[0];
     const nodeSpec = getNodeSpec(args.registry, definitionId);
-    const nodeId = getNodeId(selection.operationKind, occurrence);
     const node = createGraphNodeIR({
-      nodeId,
+      nodeId: baseNodeId,
       definitionId: nodeSpec.source.definitionId,
       nodeType: nodeSpec.nodeType,
       displayName: nodeSpec.displayName,
@@ -306,9 +447,8 @@ function buildCompiledWorkflowPlan(args: {
     });
     graph = addNodeToGraph(graph, node);
 
-    const stepId = getStepId(selection.operationKind, occurrence);
     compiledNodes.push({
-      stepId,
+      stepId: baseStepId,
       definitionId: nodeSpec.source.definitionId,
       nodeId: node.nodeId,
       displayName: nodeSpec.displayName,
@@ -341,7 +481,7 @@ function buildCompiledWorkflowPlan(args: {
       );
       compiledEdges.push({
         fromStepId: source.stepId,
-        toStepId: stepId,
+        toStepId: baseStepId,
         fromPortKey: source.portKey,
         toPortKey: inputPort.key,
       });
@@ -361,7 +501,7 @@ function buildCompiledWorkflowPlan(args: {
         );
         compiledEdges.push({
           fromStepId: imageSource.stepId,
-          toStepId: stepId,
+          toStepId: baseStepId,
           fromPortKey: imageSource.portKey,
           toPortKey: optionalImagePort.key,
         });
@@ -374,7 +514,7 @@ function buildCompiledWorkflowPlan(args: {
     if (selection.operationKind !== "export" && selection.operationKind !== "output-result") {
       const outputPort = chooseOutputPort(nodeSpec, getPreferredOutputKindsForOperation(selection.operationKind));
       latestProducedSource = {
-        stepId,
+        stepId: baseStepId,
         nodeId: node.nodeId,
         portKey: outputPort.key,
         valueKind: outputPort.kind,
@@ -382,15 +522,17 @@ function buildCompiledWorkflowPlan(args: {
       for (const producedKind of outputPort.produces || [outputPort.kind]) {
         latestSourceByKind.set(producedKind, latestProducedSource);
       }
+      branchedSources = [];
     } else {
-      terminalNodeId = node.nodeId;
+      terminalNodeIds = [node.nodeId];
     }
   }
 
+  const enableAppMode = appFields.length > 0 || terminalNodeIds.length > 0;
   graph = {
     ...graph,
     appMode: createDefaultAppModeIR({
-      enabled: appFields.length > 0,
+      enabled: enableAppMode,
       exposureStrategy: appFields.length > 0 ? "manual" : "auto",
       fields: [],
       sections: [],
@@ -400,8 +542,8 @@ function buildCompiledWorkflowPlan(args: {
     graph = setAppModeEnabled(graph, true);
     graph = setAppModeFields(graph, appFields, { exposureStrategy: "manual" as GraphAppModeIR["exposureStrategy"] });
   }
-  if (terminalNodeId) {
-    graph = setGraphOutputs(graph, [terminalNodeId]);
+  if (terminalNodeIds.length > 0) {
+    graph = setGraphOutputs(graph, terminalNodeIds);
   } else if (latestNode) {
     graph = setGraphOutputs(graph, [latestNode.nodeId]);
   }

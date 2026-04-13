@@ -19,13 +19,16 @@ import type {
 export type CompilerDomain = "image" | "video" | "audio" | "text" | "unknown";
 export type CompilerOperationKind =
   | "upload"
+  | "prompt-source"
   | "file-to-image"
   | "enhance-prompt"
   | "upscale-image"
   | "edit-image"
   | "reference-image-edit"
   | "generate-image"
+  | "compare-generate-image"
   | "generate-video"
+  | "compare-generate-video"
   | "export"
   | "output-result"
   | "unknown";

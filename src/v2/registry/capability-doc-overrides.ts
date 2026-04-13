@@ -193,6 +193,37 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   },
   {
     match: {
+      definitionIds: ["jzXJ8QEfxQm2sZfvzu7q"],
+      displayNames: ["Prompt"],
+    },
+    docs: [
+      "https://help.weavy.ai/en/articles/12268282-text-tools",
+      "https://help.weavy.ai/en/articles/14047674-prompt-variables",
+    ],
+    capabilities: {
+      functionalRole: "ui-binding",
+      taskTags: ["prompt-source", "text-input", "prompt-input"],
+      ioProfile: {
+        summary: "none -> text",
+        requiredInputKinds: [],
+        acceptedInputKinds: [],
+        optionalInputKinds: [],
+        outputKinds: ["text"],
+      },
+      dependencyComplexity: "simple",
+      hiddenDependencies: [],
+      bridgeSuitability: "none",
+      naturalLanguageDescription:
+        "Provides a reusable text prompt input that can fan out into one or more downstream prompt-driven nodes.",
+      commonUseCases: [
+        "Drive one or more generation nodes from a shared prompt",
+        "Expose a top-level prompt input in a Weavy app",
+      ],
+      planningHints: ["prefer_for_prompt_source", "prefer_near_workflow_start"],
+    },
+  },
+  {
+    match: {
       definitionIds: ["7gKmskdJQ28nMlxdB6aR"],
       displayNames: ["Prompt Enhancer"],
     },
