@@ -36,10 +36,14 @@ Create a primary logo system for `Avori` that feels current, bold, minimal, and 
 
 ### Color
 
-- Primary mark color: near-black or cool dark slate
-- Backgrounds: white, cool light gray, or transparent
+- Signature brand color: electric blue
+- Primary blue: `#2563FF`
+- Dark support: `#0F1B3D`
+- Light support: `#EAF1FF`
+- Backgrounds: white, very light blue, or transparent
 - The system should remain usable in one color
-- Avoid warm brown and soft beige as the core identity colors
+- Black and white alternates should exist, but electric blue is the main identity color
+- Avoid warm brown, beige, muted gray, and generic neutral-first branding
 
 ## Deliverables
 
@@ -55,3 +59,4 @@ Create a primary logo system for `Avori` that feels current, bold, minimal, and 
 - Feels bolder, younger, and more current than the initial soft directions
 - Works on TikTok profile surfaces and future DTC packaging
 - Remains legible and recognizable in monochrome
+- Has a memorable signature color rather than relying on safe neutrals
