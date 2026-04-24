@@ -7,10 +7,16 @@ import type {
   AppFieldControl,
 } from "../graph/types.ts";
 import type {
+  CompilerClarifyingQuestionSchema,
+  CompilerCompleteResultSchema,
+  CompilerExplanationSchema,
   CompilerErrorSchema,
+  CompilerFailureResultSchema,
   CompilerOperationKindSchema,
   CompilerPlanGapSchema,
+  CompilerPromptFieldSchema,
   CompilerPrimitiveCoverageSchema,
+  CompilerQuestionRequiredResultSchema,
   CompiledGraphNodeSchema,
   CompilerPromptPrimitiveSchema,
   CompiledWorkflowPlanSchema,
@@ -26,6 +32,12 @@ export type CompilerOperationKind = z.infer<typeof CompilerOperationKindSchema>;
 export type CompilerOperation = z.infer<typeof CompilerOperationSchema>;
 export type CompilerPromptPrimitive = z.infer<typeof CompilerPromptPrimitiveSchema>;
 export type CompilerIntent = z.infer<typeof CompilerIntentSchema>;
+export type CompilerClarifyingQuestion = z.infer<typeof CompilerClarifyingQuestionSchema>;
+export type CompilerPromptField = z.infer<typeof CompilerPromptFieldSchema>;
+export type CompilerExplanation = z.infer<typeof CompilerExplanationSchema>;
+export type CompilerQuestionRequiredResult = z.infer<typeof CompilerQuestionRequiredResultSchema>;
+export type CompilerCompleteResult = z.infer<typeof CompilerCompleteResultSchema>;
+export type CompilerFailureResult = z.infer<typeof CompilerFailureResultSchema>;
 export type CompilerError = z.infer<typeof CompilerErrorSchema>;
 export type CompilerTraceEntry = z.infer<typeof CompilerTraceEntrySchema>;
 export type CompiledGraphNode = z.infer<typeof CompiledGraphNodeSchema>;

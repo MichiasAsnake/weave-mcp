@@ -191,18 +191,62 @@ export const CompiledWorkflowPlanSchema = z.object({
   gaps: z.array(CompilerPlanGapSchema).default([]),
 });
 
-export const CompilerResultSchema = z.discriminatedUnion("ok", [
-  z.object({
-    ok: z.literal(true),
-    intent: CompilerIntentSchema,
-    plan: CompiledWorkflowPlanSchema,
-    graph: GraphIRSchema,
-    trace: z.array(CompilerTraceEntrySchema),
-  }),
-  z.object({
-    ok: z.literal(false),
-    intent: CompilerIntentSchema,
-    error: CompilerErrorSchema,
-    trace: z.array(CompilerTraceEntrySchema),
-  }),
+export const CompilerClarifyingQuestionSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  reason: z.string().min(1),
+  options: z.array(z.string().min(1)).max(4).default([]),
+});
+
+export const CompilerPromptFieldSchema = z.object({
+  nodeRole: z.string().min(1),
+  promptKey: z.string().min(1),
+  purpose: z.string().min(1),
+  text: z.string().min(1),
+  editable: z.boolean(),
+});
+
+export const CompilerExplanationSchema = z.object({
+  summary: z.string().min(1),
+  assumptions: z.array(z.string().min(1)).default([]),
+  promptNotes: z.array(z.string().min(1)).default([]),
+  suggestedTweaks: z.array(z.string().min(1)).default([]),
+});
+
+const CompilerSuccessResultBaseSchema = z.object({
+  ok: z.literal(true),
+  intent: CompilerIntentSchema,
+  questions: z.array(CompilerClarifyingQuestionSchema).max(2).default([]),
+  promptDraft: z.array(CompilerPromptFieldSchema).default([]),
+  trace: z.array(CompilerTraceEntrySchema),
+});
+
+export const CompilerQuestionRequiredResultSchema = CompilerSuccessResultBaseSchema.extend({
+  status: z.literal("question-required"),
+  plan: z.null().default(null),
+  graph: z.null().default(null),
+  explanation: CompilerExplanationSchema.nullable().default(null),
+});
+
+export const CompilerCompleteResultSchema = CompilerSuccessResultBaseSchema.extend({
+  status: z.literal("complete").default("complete"),
+  plan: CompiledWorkflowPlanSchema,
+  graph: GraphIRSchema,
+  explanation: CompilerExplanationSchema.nullable().default(null),
+});
+
+export const CompilerFailureResultSchema = z.object({
+  ok: z.literal(false),
+  status: z.enum(["unsupported", "failed"]),
+  intent: CompilerIntentSchema,
+  error: CompilerErrorSchema,
+  questions: z.array(CompilerClarifyingQuestionSchema).max(2).default([]),
+  promptDraft: z.array(CompilerPromptFieldSchema).default([]),
+  trace: z.array(CompilerTraceEntrySchema),
+});
+
+export const CompilerResultSchema = z.union([
+  CompilerQuestionRequiredResultSchema,
+  CompilerCompleteResultSchema,
+  CompilerFailureResultSchema,
 ]);
