@@ -124,7 +124,21 @@ test("compiler result supports legacy error responses without status", () => {
   assert.equal(parsed.error.code, "unsupported_domain");
 });
 
-test("compiler result rejects invalid success shape combinations", () => {
+test("compiler result rejects invalid result shape combinations", () => {
+  assert.throws(() =>
+    CompilerResultSchema.parse({
+      ok: true,
+      status: "question-required",
+      intent: baseIntent,
+      questions: [],
+      promptDraft: [],
+      plan: null,
+      graph: null,
+      explanation: null,
+      trace: [],
+    }),
+  );
+
   assert.throws(() =>
     CompilerResultSchema.parse({
       ok: true,
@@ -149,6 +163,19 @@ test("compiler result rejects invalid success shape combinations", () => {
       plan: basePlan,
       graph: baseGraph,
       explanation: null,
+      trace: [],
+    }),
+  );
+
+  assert.throws(() =>
+    CompilerResultSchema.parse({
+      ok: false,
+      status: "unsupported",
+      intent: baseIntent,
+      error: {
+        code: "graph_validation_failed",
+        message: "Compiled graph failed validation.",
+      },
       trace: [],
     }),
   );

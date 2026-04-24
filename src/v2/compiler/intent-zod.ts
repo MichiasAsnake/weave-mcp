@@ -225,6 +225,10 @@ const UNSUPPORTED_COMPILER_ERROR_CODES = new Set([
   "missing_export_capability",
 ]);
 
+function inferCompilerFailureStatus(errorCode: z.infer<typeof CompilerErrorSchema>["code"]) {
+  return UNSUPPORTED_COMPILER_ERROR_CODES.has(errorCode) ? "unsupported" : "failed";
+}
+
 const CompilerSuccessResultBaseSchema = z.object({
   ok: z.literal(true),
   intent: CompilerIntentSchema,
@@ -235,6 +239,7 @@ const CompilerSuccessResultBaseSchema = z.object({
 
 export const CompilerQuestionRequiredResultSchema = CompilerSuccessResultBaseSchema.extend({
   status: z.literal("question-required"),
+  questions: z.array(CompilerClarifyingQuestionSchema).min(1).max(2),
   plan: z.null().default(null),
   graph: z.null().default(null),
   explanation: CompilerExplanationSchema.nullable().default(null),
@@ -245,6 +250,25 @@ export const CompilerCompleteResultSchema = CompilerSuccessResultBaseSchema.exte
   plan: CompiledWorkflowPlanSchema,
   graph: GraphIRSchema,
   explanation: CompilerExplanationSchema.nullable().default(null),
+});
+
+const CompilerFailureResultBaseSchema = z.object({
+  ok: z.literal(false),
+  status: CompilerFailureStatusSchema,
+  intent: CompilerIntentSchema,
+  error: CompilerErrorSchema,
+  questions: z.array(CompilerClarifyingQuestionSchema).max(2).default([]),
+  promptDraft: z.array(CompilerPromptFieldSchema).default([]),
+  trace: z.array(CompilerTraceEntrySchema),
+}).superRefine((value, ctx) => {
+  const inferredStatus = inferCompilerFailureStatus(value.error.code);
+  if (value.status !== inferredStatus) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["status"],
+      message: `Status ${value.status} does not match error code ${value.error.code}.`,
+    });
+  }
 });
 
 export const CompilerFailureResultSchema = z.preprocess((input) => {
@@ -260,23 +284,16 @@ export const CompilerFailureResultSchema = z.preprocess((input) => {
 
   const candidate = input as {
     error?: {
-      code?: unknown;
+      code?: z.infer<typeof CompilerErrorSchema>["code"];
     };
   };
-  const status = UNSUPPORTED_COMPILER_ERROR_CODES.has(candidate.error?.code as string)
-    ? "unsupported"
-    : "failed";
 
-  return { ...input, status };
-}, z.object({
-  ok: z.literal(false),
-  status: CompilerFailureStatusSchema,
-  intent: CompilerIntentSchema,
-  error: CompilerErrorSchema,
-  questions: z.array(CompilerClarifyingQuestionSchema).max(2).default([]),
-  promptDraft: z.array(CompilerPromptFieldSchema).default([]),
-  trace: z.array(CompilerTraceEntrySchema),
-}));
+  if (candidate.error?.code === undefined) {
+    return input;
+  }
+
+  return { ...input, status: inferCompilerFailureStatus(candidate.error.code) };
+}, CompilerFailureResultBaseSchema);
 
 export const CompilerResultSchema = z.union([
   CompilerQuestionRequiredResultSchema,
