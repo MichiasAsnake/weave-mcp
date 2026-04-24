@@ -107,6 +107,23 @@ test("compiler result supports legacy complete success responses", () => {
   assert.equal(parsed.graph.nodes.length, 1);
 });
 
+test("compiler result supports legacy error responses without status", () => {
+  const parsed: CompilerResult = CompilerResultSchema.parse({
+    ok: false,
+    intent: baseIntent,
+    error: {
+      code: "unsupported_domain",
+      message: "The compiler intent layer could not infer a supported workflow domain.",
+    },
+    trace: [],
+  });
+
+  assert.equal(parsed.status, "unsupported");
+  assert.deepEqual(parsed.questions, []);
+  assert.deepEqual(parsed.promptDraft, []);
+  assert.equal(parsed.error.code, "unsupported_domain");
+});
+
 test("compiler result rejects invalid success shape combinations", () => {
   assert.throws(() =>
     CompilerResultSchema.parse({

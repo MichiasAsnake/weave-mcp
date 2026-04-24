@@ -213,6 +213,18 @@ export const CompilerExplanationSchema = z.object({
   suggestedTweaks: z.array(z.string().min(1)).default([]),
 });
 
+const CompilerFailureStatusSchema = z.enum(["unsupported", "failed"]);
+
+const UNSUPPORTED_COMPILER_ERROR_CODES = new Set([
+  "unsupported_domain",
+  "unsupported_operation",
+  "unsupported_output_format",
+  "missing_import_capability",
+  "missing_bridge",
+  "missing_operation_capability",
+  "missing_export_capability",
+]);
+
 const CompilerSuccessResultBaseSchema = z.object({
   ok: z.literal(true),
   intent: CompilerIntentSchema,
@@ -235,15 +247,36 @@ export const CompilerCompleteResultSchema = CompilerSuccessResultBaseSchema.exte
   explanation: CompilerExplanationSchema.nullable().default(null),
 });
 
-export const CompilerFailureResultSchema = z.object({
+export const CompilerFailureResultSchema = z.preprocess((input) => {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    !("ok" in input) ||
+    (input as { ok?: unknown }).ok !== false ||
+    "status" in input
+  ) {
+    return input;
+  }
+
+  const candidate = input as {
+    error?: {
+      code?: unknown;
+    };
+  };
+  const status = UNSUPPORTED_COMPILER_ERROR_CODES.has(candidate.error?.code as string)
+    ? "unsupported"
+    : "failed";
+
+  return { ...input, status };
+}, z.object({
   ok: z.literal(false),
-  status: z.enum(["unsupported", "failed"]),
+  status: CompilerFailureStatusSchema,
   intent: CompilerIntentSchema,
   error: CompilerErrorSchema,
   questions: z.array(CompilerClarifyingQuestionSchema).max(2).default([]),
   promptDraft: z.array(CompilerPromptFieldSchema).default([]),
   trace: z.array(CompilerTraceEntrySchema),
-});
+}));
 
 export const CompilerResultSchema = z.union([
   CompilerQuestionRequiredResultSchema,
