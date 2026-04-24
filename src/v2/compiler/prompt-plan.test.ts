@@ -164,3 +164,49 @@ test("prompt describer selector excludes unusable video candidates", async () =>
   assert.deepEqual(registryVideoDescriber.capabilities.hiddenDependencies, ["video_url"]);
   assert.deepEqual(selectedVideoCandidates, []);
 });
+
+test("prompt describer selector ignores wrong-output-shape candidates", async () => {
+  const registry = await registryPromise;
+  const imageDescriber = registry.nodeSpecs.find((node) => node.source.definitionId === "QmgEhPkxIT2o0R769yvK");
+
+  assert.ok(imageDescriber);
+
+  const wrongOutputShapeDescriber = cloneWithOverrides(imageDescriber, {
+    displayName: "AAA Wrong Output Describer",
+    source: { definitionId: "aaa-wrong-output-describer" },
+    capabilities: {
+      ioProfile: {
+        summary: "image -> image",
+        requiredInputKinds: ["image"],
+        acceptedInputKinds: ["image"],
+        optionalInputKinds: [],
+        outputKinds: ["image"],
+      },
+    },
+    ports: [
+      {
+        key: "image",
+        direction: "input",
+        kind: "image",
+        required: true,
+        multi: false,
+        accepts: ["image"],
+      },
+      {
+        key: "image_out",
+        direction: "output",
+        kind: "image",
+        required: false,
+        multi: false,
+        produces: ["image"],
+      },
+    ],
+  });
+
+  const noisyRegistry = {
+    ...registry,
+    nodeSpecs: [wrongOutputShapeDescriber],
+  };
+
+  assert.deepEqual(selectPromptDescriberCandidates(noisyRegistry, "image"), []);
+});
