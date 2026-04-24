@@ -49,6 +49,65 @@ test("registry selectors rank usable prompt-native planning nodes", async () => 
   assert.deepEqual(selectPromptDescriberCandidates(registry, "image"), ["QmgEhPkxIT2o0R769yvK"]);
 });
 
+test("prompt source and enhancer survive definition id drift against noisy exact-shape competitors", async () => {
+  const registry = await registryPromise;
+  const promptNode = registry.nodeSpecs.find((node) => node.source.definitionId === "jzXJ8QEfxQm2sZfvzu7q");
+  const promptEnhancer = registry.nodeSpecs.find((node) => node.source.definitionId === "7gKmskdJQ28nMlxdB6aR");
+
+  assert.ok(promptNode);
+  assert.ok(promptEnhancer);
+
+  const driftedPromptNode = cloneWithOverrides(promptNode, {
+    source: { definitionId: "drifted-prompt-source" },
+  });
+  const driftedPromptEnhancer = cloneWithOverrides(promptEnhancer, {
+    source: { definitionId: "drifted-prompt-enhancer" },
+  });
+
+  const refreshedRegistry = refreshRegistryCapabilities({
+    ...registry,
+    nodeSpecs: [driftedPromptNode, driftedPromptEnhancer],
+  });
+  const refreshedPromptNode = refreshedRegistry.nodeSpecs[0];
+  const refreshedPromptEnhancer = refreshedRegistry.nodeSpecs[1];
+
+  assert.ok(refreshedPromptNode);
+  assert.ok(refreshedPromptEnhancer);
+
+  const noisyPromptNode = cloneWithOverrides(promptNode, {
+    displayName: "Noisy Prompt Source",
+    nodeType: "custom_prompt_source",
+    source: { definitionId: "noisy-prompt-source" },
+    capabilities: {
+      planningHints: ["prefer_for_prompt_source"],
+      taskTags: ["prompt-source", "prompt-input"],
+    },
+  });
+  const noisyPromptEnhancer = cloneWithOverrides(promptEnhancer, {
+    displayName: "Noisy Prompt Enhancer",
+    nodeType: "custom_prompt_enhancer",
+    source: { definitionId: "noisy-prompt-enhancer" },
+    capabilities: {
+      planningHints: ["prefer_for_prompt_enhancement"],
+      taskTags: ["prompt-enhance"],
+    },
+  });
+
+  const promptRegistry = {
+    ...registry,
+    nodeSpecs: [refreshedPromptNode, noisyPromptNode],
+  };
+  const enhancerRegistry = {
+    ...registry,
+    nodeSpecs: [refreshedPromptEnhancer, noisyPromptEnhancer],
+  };
+
+  assert.ok(refreshedPromptNode.capabilities.planningHints.includes("prefer_for_prompt_scaffold"));
+  assert.ok(refreshedPromptEnhancer.capabilities.planningHints.includes("prefer_for_prompt_refinement"));
+  assert.deepEqual(selectPromptNodeCandidates(promptRegistry), ["drifted-prompt-source"]);
+  assert.deepEqual(selectPromptEnhancerCandidates(enhancerRegistry), ["drifted-prompt-enhancer"]);
+});
+
 test("prompt node and enhancer selectors ignore noisy mis-tagged candidates", async () => {
   const registry = await registryPromise;
   const promptNode = registry.nodeSpecs.find((node) => node.source.definitionId === "jzXJ8QEfxQm2sZfvzu7q");
