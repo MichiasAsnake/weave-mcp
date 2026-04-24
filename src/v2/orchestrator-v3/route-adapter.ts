@@ -6,7 +6,14 @@ export function runCompilerRouteTurn(args: {
   userRequest: string;
   registry: NormalizedRegistrySnapshot;
 }) {
-  const result = compileWorkflowFromRequest(args.userRequest, {
+  return runCompilerRouteTurnAsync(args);
+}
+
+export async function runCompilerRouteTurnAsync(args: {
+  userRequest: string;
+  registry: NormalizedRegistrySnapshot;
+}) {
+  const result = await compileWorkflowFromRequest(args.userRequest, {
     registry: args.registry,
   });
 
@@ -21,15 +28,18 @@ export function runCompilerRouteTurn(args: {
         error: error.message,
         data: {
           mode: "compiler",
+          status: result.status,
           intent: result.intent,
           error,
+          questions: result.questions,
+          promptDraft: result.promptDraft,
           trace: result.trace,
         },
       },
     };
   }
 
-  const validation = validateGraph(result.graph, args.registry);
+  const validation = result.graph ? validateGraph(result.graph, args.registry) : null;
 
   return {
     ok: true as const,
@@ -38,11 +48,15 @@ export function runCompilerRouteTurn(args: {
       ok: true,
       data: {
         mode: "compiler",
-        status: validation.ok ? "complete" : "failed",
+        status: result.status,
         intent: result.intent,
         plan: result.plan,
+        compiledGraph: result.graph,
+        promptDraft: result.promptDraft,
+        questions: result.questions,
+        explanation: result.explanation,
         validationResult: validation,
-        workingGraphNodeTypes: result.graph.nodes.map((node) => node.nodeType),
+        workingGraphNodeTypes: result.graph ? result.graph.nodes.map((node) => node.nodeType) : [],
         trace: result.trace,
       },
     },

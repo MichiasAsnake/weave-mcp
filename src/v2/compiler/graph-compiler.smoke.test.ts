@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { compileWorkflowFromRequest } from "./graph-compiler.ts";
 import { readLatestNormalizedRegistrySnapshot } from "../registry/store.ts";
+import { runCompilerRouteTurnAsync } from "../orchestrator-v3/route-adapter.ts";
 
 const registryPromise = readLatestNormalizedRegistrySnapshot();
 
@@ -77,6 +78,19 @@ test("compiler returns prompt scaffolding and explanation for prompt-driven grap
     assert.ok(result.promptDraft.length >= 1);
     assert.match(result.explanation?.summary || "", /ad scenes/i);
   }
+});
+
+test("compiler route returns question payloads without forcing materialization", async () => {
+  const registry = await registryPromise;
+  const response = await runCompilerRouteTurnAsync({
+    userRequest: "build a bag ad scene generator",
+    registry,
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.body.data.status, "question-required");
+  assert.equal(response.body.data.compiledGraph, null);
+  assert.equal(response.body.data.questions.length, 1);
 });
 
 test("normalized registry includes live helper nodes recovered from the public all-nodes flow", async () => {
