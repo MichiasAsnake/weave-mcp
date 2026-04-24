@@ -624,6 +624,9 @@ export function selectPromptDescriberCandidates(
     registry.nodeSpecs.filter((node) =>
       node.capabilities.planningHints.includes("prefer_for_asset_to_prompt")
       && node.capabilities.ioProfile.requiredInputKinds.includes(kind)
+      && !node.capabilities.planningHints.some((hint) => hint.startsWith("avoid_"))
+      && node.capabilities.hiddenDependencies.length === 0
+      && node.capabilities.dependencyComplexity !== "heavy"
     ),
     (node) => {
       let score = 0;
