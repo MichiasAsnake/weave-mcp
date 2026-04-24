@@ -204,6 +204,43 @@ test("prompt enhancer selector ignores multi-input text combiner candidates", as
   assert.deepEqual(selectPromptEnhancerCandidates(noisyRegistry), []);
 });
 
+test("prompt enhancer selector ignores variadic single-port candidates", async () => {
+  const registry = await registryPromise;
+  const promptEnhancer = registry.nodeSpecs.find((node) => node.source.definitionId === "7gKmskdJQ28nMlxdB6aR");
+
+  assert.ok(promptEnhancer);
+
+  const variadicPromptEnhancer = cloneWithOverrides(promptEnhancer, {
+    displayName: "AAA Variadic Prompt Enhancer",
+    source: { definitionId: "aaa-variadic-prompt-enhancer" },
+    ports: [
+      {
+        key: "text",
+        direction: "input",
+        kind: "text",
+        required: true,
+        multi: true,
+        accepts: ["text"],
+      },
+      {
+        key: "text_out",
+        direction: "output",
+        kind: "text",
+        required: false,
+        multi: false,
+        produces: ["text"],
+      },
+    ],
+  });
+
+  const noisyRegistry = {
+    ...registry,
+    nodeSpecs: [variadicPromptEnhancer],
+  };
+
+  assert.deepEqual(selectPromptEnhancerCandidates(noisyRegistry), []);
+});
+
 test("prompt describer selector excludes unusable video candidates", async () => {
   const registry = await registryPromise;
 
@@ -422,6 +459,43 @@ test("prompt describer selector ignores candidates with permissive non-asset inp
   const noisyRegistry = {
     ...registry,
     nodeSpecs: [permissiveInputDescriber],
+  };
+
+  assert.deepEqual(selectPromptDescriberCandidates(noisyRegistry, "image"), []);
+});
+
+test("prompt describer selector ignores variadic single-port candidates", async () => {
+  const registry = await registryPromise;
+  const imageDescriber = registry.nodeSpecs.find((node) => node.source.definitionId === "QmgEhPkxIT2o0R769yvK");
+
+  assert.ok(imageDescriber);
+
+  const variadicDescriber = cloneWithOverrides(imageDescriber, {
+    displayName: "AAA Variadic Describer",
+    source: { definitionId: "aaa-variadic-describer" },
+    ports: [
+      {
+        key: "image",
+        direction: "input",
+        kind: "image",
+        required: true,
+        multi: true,
+        accepts: ["image"],
+      },
+      {
+        key: "text",
+        direction: "output",
+        kind: "text",
+        required: false,
+        multi: false,
+        produces: ["text"],
+      },
+    ],
+  });
+
+  const noisyRegistry = {
+    ...registry,
+    nodeSpecs: [variadicDescriber],
   };
 
   assert.deepEqual(selectPromptDescriberCandidates(noisyRegistry, "image"), []);

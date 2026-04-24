@@ -87,7 +87,7 @@ function isExactUnaryInputPort(node: NodeSpec, kind: ValueKind): boolean {
   if (inputPorts.length !== 1) return false;
 
   const [inputPort] = inputPorts;
-  if (!inputPort?.required) return false;
+  if (!inputPort?.required || inputPort.multi) return false;
 
   const acceptedKinds = inputPort.accepts || [inputPort.kind];
   return acceptedKinds.length === 1
