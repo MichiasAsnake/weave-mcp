@@ -52,6 +52,12 @@ export interface CompilerRuntime {
   now?: () => string;
 }
 
+export interface CompilerPromptDraft {
+  fields: CompilerPromptField[];
+  usePromptEnhancer: boolean;
+  useAssetDescriber: boolean;
+}
+
 export interface CandidateSelection {
   operationKind: CompilerOperationKind;
   operation: CompilerOperation;

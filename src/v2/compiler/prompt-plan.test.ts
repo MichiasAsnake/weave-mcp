@@ -8,6 +8,8 @@ import {
 } from "../registry/capability-selectors.ts";
 import { refreshRegistryCapabilities } from "../registry/capabilities.ts";
 import { readLatestNormalizedRegistrySnapshot } from "../registry/store.ts";
+import { parseCompilerIntent } from "./intent.ts";
+import { buildPromptPlan } from "./prompt-plan.ts";
 
 const registryPromise = readLatestNormalizedRegistrySnapshot();
 
@@ -582,4 +584,23 @@ test("prompt describer selector ignores variadic single-port candidates", async 
   };
 
   assert.deepEqual(selectPromptDescriberCandidates(noisyRegistry, "image"), []);
+});
+
+test("prompt plan scaffolds a product ad generator request", async () => {
+  const registry = await registryPromise;
+  const intent = parseCompilerIntent("build a bag ad scene generator with three luxury travel scenes");
+  const plan = buildPromptPlan(intent, registry);
+
+  assert.ok(plan.fields.some((field) => field.promptKey === "base_product_prompt"));
+  assert.ok(plan.fields.some((field) => field.promptKey === "scene_variation_prompt"));
+  assert.ok(plan.fields.every((field) => field.text.length > 20));
+  assert.equal(plan.usePromptEnhancer, true);
+});
+
+test("prompt plan uses image describer support when a reference image drives the flow", async () => {
+  const registry = await registryPromise;
+  const intent = parseCompilerIntent("build an app where I upload a bag image, describe it, and generate new ad scenes");
+  const plan = buildPromptPlan(intent, registry);
+
+  assert.equal(plan.useAssetDescriber, true);
 });
