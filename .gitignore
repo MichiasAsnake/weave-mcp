@@ -1,6 +1,7 @@
 node_modules
 .next
 .data
+.worktrees
 src/local.env
 local.env
 .env
