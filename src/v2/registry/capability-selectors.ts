@@ -567,20 +567,70 @@ export function selectPromptComposeCandidates(
   ).slice(0, 1);
 }
 
+export function selectPromptNodeCandidates(
+  registry: NormalizedRegistrySnapshot,
+): string[] {
+  return rankDefinitionIds(
+    registry.nodeSpecs.filter((node) =>
+      node.capabilities.planningHints.includes("prefer_for_prompt_scaffold")
+      || node.capabilities.planningHints.includes("prefer_for_prompt_source")
+      || node.capabilities.taskTags.includes("prompt-variable-target")
+      || node.capabilities.taskTags.includes("prompt-source")
+      || node.nodeType === "promptV3"
+    ),
+    (node) => {
+      let score = 0;
+      if (node.capabilities.planningHints.includes("prefer_for_prompt_scaffold")) score += 10;
+      if (node.capabilities.planningHints.includes("prefer_for_prompt_source")) score += 8;
+      if (node.capabilities.taskTags.includes("prompt-variable-target")) score += 6;
+      if (node.capabilities.taskTags.includes("prompt-source")) score += 4;
+      if (node.capabilities.ioProfile.summary === "none -> text") score += 4;
+      if (node.capabilities.dependencyComplexity === "simple") score += 2;
+      if (node.nodeType === "promptV3") score += 2;
+      return score;
+    },
+  ).slice(0, 1);
+}
+
 export function selectPromptEnhancerCandidates(
   registry: NormalizedRegistrySnapshot,
 ): string[] {
   return rankDefinitionIds(
     registry.nodeSpecs.filter((node) =>
-      node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")
+      node.capabilities.planningHints.includes("prefer_for_prompt_refinement")
+      || node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")
+      || node.capabilities.taskTags.includes("prompt-enhancement")
       || node.capabilities.taskTags.includes("prompt-enhance")
       || node.nodeType === "prompt_enhance"
     ),
     (node) => {
       let score = 0;
+      if (node.capabilities.planningHints.includes("prefer_for_prompt_refinement")) score += 10;
       if (node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")) score += 8;
+      if (node.capabilities.taskTags.includes("prompt-enhancement")) score += 6;
       if (node.capabilities.taskTags.includes("prompt-enhance")) score += 6;
       if (node.capabilities.ioProfile.summary === "text -> text") score += 4;
+      if (node.capabilities.dependencyComplexity === "simple") score += 2;
+      return score;
+    },
+  ).slice(0, 1);
+}
+
+export function selectPromptDescriberCandidates(
+  registry: NormalizedRegistrySnapshot,
+  kind: "image" | "video",
+): string[] {
+  return rankDefinitionIds(
+    registry.nodeSpecs.filter((node) =>
+      node.capabilities.planningHints.includes("prefer_for_asset_to_prompt")
+      && node.capabilities.ioProfile.requiredInputKinds.includes(kind)
+    ),
+    (node) => {
+      let score = 0;
+      if (node.capabilities.planningHints.includes("prefer_for_asset_to_prompt")) score += 10;
+      if (node.capabilities.taskTags.includes("asset-description")) score += 6;
+      if (node.capabilities.taskTags.includes("prompt-authoring")) score += 4;
+      if (node.capabilities.ioProfile.outputKinds.includes("text")) score += 4;
       if (node.capabilities.dependencyComplexity === "simple") score += 2;
       return score;
     },

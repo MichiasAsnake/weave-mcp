@@ -202,7 +202,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     ],
     capabilities: {
       functionalRole: "ui-binding",
-      taskTags: ["prompt-source", "text-input", "prompt-input"],
+      taskTags: ["prompt-source", "text-input", "prompt-input", "prompt-authoring", "prompt-variable-target"],
       ioProfile: {
         summary: "none -> text",
         requiredInputKinds: [],
@@ -219,7 +219,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
         "Drive one or more generation nodes from a shared prompt",
         "Expose a top-level prompt input in a Weavy app",
       ],
-      planningHints: ["prefer_for_prompt_source", "prefer_near_workflow_start"],
+      planningHints: ["prefer_for_prompt_source", "prefer_for_prompt_scaffold", "prefer_near_workflow_start"],
     },
   },
   {
@@ -232,7 +232,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     ],
     capabilities: {
       functionalRole: "transform",
-      taskTags: ["prompt-enhance", "text-transform"],
+      taskTags: ["prompt-enhance", "text-transform", "prompt-authoring", "prompt-enhancement"],
       ioProfile: {
         summary: "text -> text",
         requiredInputKinds: ["text"],
@@ -244,7 +244,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
       naturalLanguageDescription:
         "Improves or expands a prompt before it is sent to a downstream generation node.",
       commonUseCases: ["Improve a user's prompt before image generation", "Refine a text prompt for stronger outputs"],
-      planningHints: ["prefer_for_prompt_enhancement", "requires_text_prompt"],
+      planningHints: ["prefer_for_prompt_enhancement", "prefer_for_prompt_refinement", "requires_text_prompt"],
     },
   },
   {
@@ -258,7 +258,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     ],
     capabilities: {
       functionalRole: "transform",
-      taskTags: ["prompt-compose", "text-transform", "prompt-concatenate"],
+      taskTags: ["prompt-compose", "text-transform", "prompt-concatenate", "prompt-authoring", "prompt-composition"],
       ioProfile: {
         summary: "text+text -> text",
         requiredInputKinds: ["text"],
@@ -275,7 +275,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
         "Compose named prompt variables into one prompt",
         "Combine reusable text fragments before generation",
       ],
-      planningHints: ["prefer_for_prompt_compose", "requires_text_prompt"],
+      planningHints: ["prefer_for_prompt_compose", "prefer_for_prompt_merge", "requires_text_prompt"],
     },
   },
   {
@@ -911,7 +911,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     ],
     capabilities: {
       functionalRole: "analyze",
-      taskTags: ["caption-extract", "image-describe"],
+      taskTags: ["caption-extract", "image-describe", "prompt-authoring", "asset-description"],
       ioProfile: {
         summary: "image -> text",
         requiredInputKinds: ["image"],
@@ -928,7 +928,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
         "Extract a caption-like description from an image",
         "Generate text context from an uploaded reference image",
       ],
-      planningHints: ["prefer_for_caption_extract"],
+      planningHints: ["prefer_for_caption_extract", "prefer_for_asset_to_prompt"],
     },
   },
   {
@@ -941,7 +941,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
     ],
     capabilities: {
       functionalRole: "analyze",
-      taskTags: ["caption-extract", "transcript-extract", "video-describe"],
+      taskTags: ["caption-extract", "transcript-extract", "video-describe", "prompt-authoring", "asset-description"],
       ioProfile: {
         summary: "video -> text",
         requiredInputKinds: ["video"],
@@ -958,7 +958,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
         "Extract descriptive text from a video",
         "Approximate transcript or caption output for downstream prompt composition",
       ],
-      planningHints: ["prefer_for_caption_extract", "prefer_for_transcript_extract"],
+      planningHints: ["prefer_for_caption_extract", "prefer_for_transcript_extract", "prefer_for_asset_to_prompt"],
     },
   },
 ];
