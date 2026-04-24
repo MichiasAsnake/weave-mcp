@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { parseCompilerIntent } from "./intent.ts";
 import { CompilerResultSchema } from "./intent-zod.ts";
+import { buildClarifyingQuestions } from "./questioning.ts";
 import type { CompilerResult } from "./types.ts";
 
 const baseIntent = {
@@ -200,4 +202,21 @@ test("compiler result rejects invalid result shape combinations", () => {
       trace: [],
     }),
   );
+});
+
+test("question gate asks for the minimum missing prompt variable", () => {
+  const intent = parseCompilerIntent("build a bag ad scene generator");
+  const questions = buildClarifyingQuestions(intent);
+
+  assert.equal(questions.length, 1);
+  assert.equal(questions[0]?.key, "brand_tone");
+});
+
+test("question gate stays quiet when the request is already structurally complete", () => {
+  const intent = parseCompilerIntent(
+    "build an app where I upload a bag product image, generate three luxury travel ad scenes, and return image outputs",
+  );
+  const questions = buildClarifyingQuestions(intent);
+
+  assert.equal(questions.length, 0);
 });
