@@ -144,6 +144,27 @@ test("compiler result rejects invalid result shape combinations", () => {
       ok: true,
       status: "complete",
       intent: baseIntent,
+      questions: [
+        {
+          key: "audience",
+          label: "Target Audience",
+          reason: "Audience changes prompt wording and visual framing.",
+          options: ["luxury"],
+        },
+      ],
+      promptDraft: [],
+      plan: basePlan,
+      graph: baseGraph,
+      explanation: null,
+      trace: [],
+    }),
+  );
+
+  assert.throws(() =>
+    CompilerResultSchema.parse({
+      ok: true,
+      status: "complete",
+      intent: baseIntent,
       questions: [],
       promptDraft: [],
       plan: null,

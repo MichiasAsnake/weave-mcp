@@ -247,6 +247,7 @@ export const CompilerQuestionRequiredResultSchema = CompilerSuccessResultBaseSch
 
 export const CompilerCompleteResultSchema = CompilerSuccessResultBaseSchema.extend({
   status: z.literal("complete").default("complete"),
+  questions: z.array(CompilerClarifyingQuestionSchema).length(0).default([]),
   plan: CompiledWorkflowPlanSchema,
   graph: GraphIRSchema,
   explanation: CompilerExplanationSchema.nullable().default(null),

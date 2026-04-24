@@ -26,12 +26,12 @@ import type {
   CompilerTraceEntrySchema,
 } from "./intent-zod.ts";
 
-export type CompilerDomain = "image" | "video" | "audio" | "text" | "unknown";
 export type CompilerOperationKind = z.infer<typeof CompilerOperationKindSchema>;
 
 export type CompilerOperation = z.infer<typeof CompilerOperationSchema>;
 export type CompilerPromptPrimitive = z.infer<typeof CompilerPromptPrimitiveSchema>;
 export type CompilerIntent = z.infer<typeof CompilerIntentSchema>;
+export type CompilerDomain = z.infer<typeof CompilerIntentSchema>["domain"];
 export type CompilerClarifyingQuestion = z.infer<typeof CompilerClarifyingQuestionSchema>;
 export type CompilerPromptField = z.infer<typeof CompilerPromptFieldSchema>;
 export type CompilerExplanation = z.infer<typeof CompilerExplanationSchema>;
