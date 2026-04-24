@@ -8,7 +8,11 @@ import type {
 } from "../graph/types.ts";
 import type {
   CompilerErrorSchema,
+  CompilerOperationKindSchema,
+  CompilerPlanGapSchema,
+  CompilerPrimitiveCoverageSchema,
   CompiledGraphNodeSchema,
+  CompilerPromptPrimitiveSchema,
   CompiledWorkflowPlanSchema,
   CompilerIntentSchema,
   CompilerOperationSchema,
@@ -17,27 +21,16 @@ import type {
 } from "./intent-zod.ts";
 
 export type CompilerDomain = "image" | "video" | "audio" | "text" | "unknown";
-export type CompilerOperationKind =
-  | "upload"
-  | "prompt-source"
-  | "file-to-image"
-  | "enhance-prompt"
-  | "upscale-image"
-  | "edit-image"
-  | "reference-image-edit"
-  | "generate-image"
-  | "compare-generate-image"
-  | "generate-video"
-  | "compare-generate-video"
-  | "export"
-  | "output-result"
-  | "unknown";
+export type CompilerOperationKind = z.infer<typeof CompilerOperationKindSchema>;
 
 export type CompilerOperation = z.infer<typeof CompilerOperationSchema>;
+export type CompilerPromptPrimitive = z.infer<typeof CompilerPromptPrimitiveSchema>;
 export type CompilerIntent = z.infer<typeof CompilerIntentSchema>;
 export type CompilerError = z.infer<typeof CompilerErrorSchema>;
 export type CompilerTraceEntry = z.infer<typeof CompilerTraceEntrySchema>;
 export type CompiledGraphNode = z.infer<typeof CompiledGraphNodeSchema>;
+export type CompilerPrimitiveCoverage = z.infer<typeof CompilerPrimitiveCoverageSchema>;
+export type CompilerPlanGap = z.infer<typeof CompilerPlanGapSchema>;
 export type CompiledWorkflowPlan = z.infer<typeof CompiledWorkflowPlanSchema>;
 export type CompilerResult = z.infer<typeof CompilerResultSchema>;
 
@@ -49,8 +42,11 @@ export interface CompilerRuntime {
 
 export interface CandidateSelection {
   operationKind: CompilerOperationKind;
+  operation: CompilerOperation;
   definitionIds: string[];
   reason: string;
+  registryGap?: boolean;
+  blockedOutputKind?: ValueKind | null;
 }
 
 export interface GraphPortSelection {

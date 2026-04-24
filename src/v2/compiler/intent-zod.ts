@@ -1,16 +1,99 @@
 import { z } from "zod";
 
-import { GraphIRSchema } from "../graph/zod.ts";
+import {
+  AppFieldBindingTypeSchema,
+  AppFieldControlSchema,
+  GraphIRSchema,
+} from "../graph/zod.ts";
 import { ValueKindSchema } from "../registry/zod.ts";
 
+export const CompilerOperationKindSchema = z.enum([
+  "upload",
+  "array-input",
+  "image-collection",
+  "reference-set",
+  "tagged-input-set",
+  "fanout",
+  "fanin",
+  "foreach",
+  "map",
+  "reduce",
+  "prompt-variable",
+  "prompt-source",
+  "prompt-compose",
+  "file-to-image",
+  "enhance-prompt",
+  "upscale-image",
+  "edit-image",
+  "reference-image-edit",
+  "multi-image-compose",
+  "style-transfer-edit",
+  "mask-from-text",
+  "inpaint-image",
+  "generate-image",
+  "compare-generate-image",
+  "generate-video",
+  "compare-generate-video",
+  "image-to-video",
+  "video-concat",
+  "voiceover-video",
+  "generate-audio",
+  "text-to-speech",
+  "speech-to-text",
+  "audio-concat",
+  "audio-mix",
+  "merge-audio-video",
+  "timeline-assemble",
+  "trim-video",
+  "timeline-overlay",
+  "timeline-transition",
+  "caption-extract",
+  "transcript-extract",
+  "scene-detect",
+  "export",
+  "output-result",
+  "unknown",
+]);
+
 export const CompilerOperationSchema = z.object({
-  kind: z.enum(["upload", "prompt-source", "file-to-image", "enhance-prompt", "upscale-image", "edit-image", "reference-image-edit", "generate-image", "compare-generate-image", "generate-video", "compare-generate-video", "export", "output-result", "unknown"]),
+  kind: CompilerOperationKindSchema,
   summary: z.string().min(1),
   inputKind: ValueKindSchema.nullable(),
   outputKind: ValueKindSchema.nullable(),
   requestedFormat: z.string().nullable().optional(),
   requiresUserInput: z.boolean().default(false),
+  branchCount: z.number().int().positive().optional(),
+  manualInputKinds: z.array(ValueKindSchema).optional(),
+  modelHints: z.array(z.string().min(1)).optional(),
+  promptKey: z.string().min(1).optional(),
+  promptLabel: z.string().min(1).optional(),
+  promptInputs: z.array(z.string().min(1)).optional(),
+  collectionItemKind: ValueKindSchema.optional(),
+  itemInputKind: ValueKindSchema.optional(),
+  itemOutputKind: ValueKindSchema.optional(),
+  countMode: z.enum(["explicit", "open-ended"]).optional(),
+  mergeStrategy: z.string().min(1).optional(),
+  fieldLabels: z.record(z.string(), z.string().min(1)).optional(),
+  fieldHelpText: z.record(z.string(), z.string().min(1)).optional(),
 });
+
+export const CompilerPromptPrimitiveSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("prompt-variable"),
+    key: z.string().min(1),
+    label: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("prompt-source"),
+    key: z.string().min(1),
+    label: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("prompt-compose"),
+    key: z.string().min(1),
+    inputs: z.array(z.string().min(1)).min(2),
+  }),
+]);
 
 export const CompilerIntentSchema = z.object({
   domain: z.enum(["image", "video", "audio", "text", "unknown"]),
@@ -28,6 +111,10 @@ export const CompilerIntentSchema = z.object({
   appMode: z.object({
     enabled: z.boolean(),
     requiredFields: z.array(z.string()),
+  }),
+  promptPlan: z.object({
+    primitives: z.array(CompilerPromptPrimitiveSchema),
+    finalPromptKey: z.string().min(1).nullable(),
   }),
   ambiguities: z.array(z.object({ code: z.string().min(1), message: z.string().min(1) })),
 });
@@ -60,6 +147,22 @@ export const CompiledGraphNodeSchema = z.object({
   purpose: z.string().min(1),
 });
 
+export const CompilerPrimitiveCoverageSchema = z.object({
+  operationKind: CompilerOperationKindSchema,
+  summary: z.string().min(1),
+  definitionIds: z.array(z.string().min(1)),
+  registryGap: z.boolean(),
+  reason: z.string().min(1),
+});
+
+export const CompilerPlanGapSchema = z.object({
+  operationKind: CompilerOperationKindSchema,
+  summary: z.string().min(1),
+  registryGap: z.literal(true),
+  reason: z.string().min(1),
+  blockedOutputKind: ValueKindSchema.nullable().optional(),
+});
+
 export const CompiledWorkflowPlanSchema = z.object({
   summary: z.string().min(1),
   nodes: z.array(CompiledGraphNodeSchema),
@@ -75,15 +178,17 @@ export const CompiledWorkflowPlanSchema = z.object({
     z.object({
       key: z.string().min(1),
       label: z.string().min(1),
-      control: z.enum(["text", "textarea", "number", "toggle", "select", "image-upload", "video-upload", "audio-upload"]),
+      control: AppFieldControlSchema,
       required: z.boolean(),
       source: z.object({
         nodeId: z.string().min(1),
-        bindingType: z.enum(["param", "unconnected-input-port"]),
+        bindingType: AppFieldBindingTypeSchema,
         bindingKey: z.string().min(1),
       }),
     }),
   ),
+  primitiveCoverage: z.array(CompilerPrimitiveCoverageSchema).default([]),
+  gaps: z.array(CompilerPlanGapSchema).default([]),
 });
 
 export const CompilerResultSchema = z.discriminatedUnion("ok", [
