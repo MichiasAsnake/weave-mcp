@@ -194,7 +194,6 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   {
     match: {
       definitionIds: ["jzXJ8QEfxQm2sZfvzu7q"],
-      displayNames: ["Prompt"],
     },
     docs: [
       "https://help.weavy.ai/en/articles/12268282-text-tools",
@@ -225,7 +224,7 @@ export const CAPABILITY_DOC_OVERRIDES: CapabilityDocOverride[] = [
   {
     match: {
       definitionIds: ["7gKmskdJQ28nMlxdB6aR"],
-      displayNames: ["Prompt Enhancer"],
+      modelNamePrefixes: ["any_llm"],
     },
     docs: [
       "https://help.weavy.ai/en/articles/12268282-text-tools",

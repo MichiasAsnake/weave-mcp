@@ -53,9 +53,11 @@ test("prompt source and enhancer survive definition id drift against noisy exact
   const registry = await registryPromise;
   const promptNode = registry.nodeSpecs.find((node) => node.source.definitionId === "jzXJ8QEfxQm2sZfvzu7q");
   const promptEnhancer = registry.nodeSpecs.find((node) => node.source.definitionId === "7gKmskdJQ28nMlxdB6aR");
+  const legacyPromptNode = registry.nodeSpecs.find((node) => node.source.definitionId === "OBtdfjfMoqp3PAzVUBHd");
 
   assert.ok(promptNode);
   assert.ok(promptEnhancer);
+  assert.ok(legacyPromptNode);
 
   const driftedPromptNode = cloneWithOverrides(promptNode, {
     source: { definitionId: "drifted-prompt-source" },
@@ -87,6 +89,7 @@ test("prompt source and enhancer survive definition id drift against noisy exact
     displayName: "Noisy Prompt Enhancer",
     nodeType: "custom_prompt_enhancer",
     source: { definitionId: "noisy-prompt-enhancer" },
+    model: { name: "custom_llm" },
     capabilities: {
       planningHints: ["prefer_for_prompt_enhancement"],
       taskTags: ["prompt-enhance"],
@@ -95,14 +98,13 @@ test("prompt source and enhancer survive definition id drift against noisy exact
 
   const promptRegistry = {
     ...registry,
-    nodeSpecs: [refreshedPromptNode, noisyPromptNode],
+    nodeSpecs: [refreshedPromptNode, noisyPromptNode, legacyPromptNode],
   };
   const enhancerRegistry = {
     ...registry,
     nodeSpecs: [refreshedPromptEnhancer, noisyPromptEnhancer],
   };
 
-  assert.ok(refreshedPromptNode.capabilities.planningHints.includes("prefer_for_prompt_scaffold"));
   assert.ok(refreshedPromptEnhancer.capabilities.planningHints.includes("prefer_for_prompt_refinement"));
   assert.deepEqual(selectPromptNodeCandidates(promptRegistry), ["drifted-prompt-source"]);
   assert.deepEqual(selectPromptEnhancerCandidates(enhancerRegistry), ["drifted-prompt-enhancer"]);

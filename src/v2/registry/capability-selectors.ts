@@ -361,7 +361,7 @@ function scorePromptInputNode(node: NodeSpec): number {
   if (node.capabilities.taskTags.includes("prompt-input")) score += 4;
   if (node.capabilities.ioProfile.summary === "none -> text") score += 4;
   if (node.capabilities.dependencyComplexity === "simple") score += 2;
-  if (node.nodeType === "promptV3") score += 4;
+  if (node.nodeType === "promptV3") score += 20;
   return score;
 }
 
@@ -396,7 +396,7 @@ function scorePromptEnhancerNode(node: NodeSpec): number {
   if (node.capabilities.taskTags.includes("prompt-enhance")) score += 6;
   if (node.capabilities.ioProfile.summary === "text -> text") score += 4;
   if (node.capabilities.dependencyComplexity === "simple") score += 2;
-  if (node.nodeType === "prompt_enhance") score += 2;
+  if (node.nodeType === "prompt_enhance") score += 12;
   return score;
 }
 
