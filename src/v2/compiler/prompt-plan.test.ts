@@ -6,6 +6,7 @@ import {
   selectPromptEnhancerCandidates,
   selectPromptNodeCandidates,
 } from "../registry/capability-selectors.ts";
+import { refreshRegistryCapabilities } from "../registry/capabilities.ts";
 import { readLatestNormalizedRegistrySnapshot } from "../registry/store.ts";
 
 const registryPromise = readLatestNormalizedRegistrySnapshot();
@@ -254,6 +255,27 @@ test("prompt describer selector excludes unusable video candidates", async () =>
   assert.ok(registryVideoDescriber.capabilities.planningHints.includes("avoid_without_model_source"));
   assert.deepEqual(registryVideoDescriber.capabilities.hiddenDependencies, ["video_url"]);
   assert.deepEqual(selectedVideoCandidates, []);
+});
+
+test("prompt describer selector survives definition id drift via display-name overrides", async () => {
+  const registry = await registryPromise;
+  const imageDescriber = registry.nodeSpecs.find((node) => node.source.definitionId === "QmgEhPkxIT2o0R769yvK");
+
+  assert.ok(imageDescriber);
+
+  const driftedImageDescriber = cloneWithOverrides(imageDescriber, {
+    source: { definitionId: "drifted-image-describer" },
+  });
+
+  const refreshedRegistry = refreshRegistryCapabilities({
+    ...registry,
+    nodeSpecs: [driftedImageDescriber],
+  });
+
+  assert.ok(
+    refreshedRegistry.nodeSpecs[0]?.capabilities.planningHints.includes("prefer_for_asset_to_prompt"),
+  );
+  assert.deepEqual(selectPromptDescriberCandidates(refreshedRegistry, "image"), ["drifted-image-describer"]);
 });
 
 test("prompt describer selector ignores wrong-output-shape candidates", async () => {
