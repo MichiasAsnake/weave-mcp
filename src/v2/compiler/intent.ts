@@ -1333,13 +1333,6 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
       message: "Brand tone changes prompt wording and scene framing for ad-generation requests.",
     });
   }
-  if (/\bedit\b|\bremix\b/.test(text) && inputSourceKind === "prompt") {
-    ambiguities.push({
-      code: "missing_reference_asset",
-      message: "Reference-driven edit flows require a source asset.",
-    });
-  }
-
   const requiresReferenceImage = /reference image|reference photo|reference picture|style reference|style image|another image|second image|two images|blend|combine|merge|composite/.test(text)
     && !isCompareIntent(text);
 
@@ -1390,6 +1383,14 @@ export function parseCompilerIntent(userRequest: string): CompilerIntent {
       ].includes(operation.kind))
         ? "prompt"
         : "unknown";
+
+  if (/\bedit\b|\bremix\b/.test(text) && inputSourceKind === "prompt") {
+    ambiguities.push({
+      code: "missing_reference_asset",
+      message: "Reference-driven edit flows require a source asset.",
+    });
+  }
+
   const inputKind = hasCollectionInputs
     ? "array"
     : directMediaInputKind
