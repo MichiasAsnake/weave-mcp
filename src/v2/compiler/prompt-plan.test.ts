@@ -210,3 +210,57 @@ test("prompt describer selector ignores wrong-output-shape candidates", async ()
 
   assert.deepEqual(selectPromptDescriberCandidates(noisyRegistry, "image"), []);
 });
+
+test("prompt describer selector ignores candidates with extra required inputs", async () => {
+  const registry = await registryPromise;
+  const imageDescriber = registry.nodeSpecs.find((node) => node.source.definitionId === "QmgEhPkxIT2o0R769yvK");
+
+  assert.ok(imageDescriber);
+
+  const extraRequiredInputDescriber = cloneWithOverrides(imageDescriber, {
+    displayName: "AAA Extra Input Describer",
+    source: { definitionId: "aaa-extra-input-describer" },
+    capabilities: {
+      ioProfile: {
+        summary: "image+text -> text",
+        requiredInputKinds: ["image", "text"],
+        acceptedInputKinds: ["image", "text"],
+        optionalInputKinds: [],
+        outputKinds: ["text"],
+      },
+    },
+    ports: [
+      {
+        key: "image",
+        direction: "input",
+        kind: "image",
+        required: true,
+        multi: false,
+        accepts: ["image"],
+      },
+      {
+        key: "instruction",
+        direction: "input",
+        kind: "text",
+        required: true,
+        multi: false,
+        accepts: ["text"],
+      },
+      {
+        key: "text",
+        direction: "output",
+        kind: "text",
+        required: false,
+        multi: false,
+        produces: ["text"],
+      },
+    ],
+  });
+
+  const noisyRegistry = {
+    ...registry,
+    nodeSpecs: [extraRequiredInputDescriber],
+  };
+
+  assert.deepEqual(selectPromptDescriberCandidates(noisyRegistry, "image"), []);
+});

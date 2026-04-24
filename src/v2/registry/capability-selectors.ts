@@ -658,7 +658,9 @@ export function selectPromptDescriberCandidates(
     registry.nodeSpecs.filter((node) =>
       node.capabilities.planningHints.includes("prefer_for_asset_to_prompt")
       && node.capabilities.ioProfile.requiredInputKinds.includes(kind)
+      && node.capabilities.ioProfile.requiredInputKinds.every((inputKind) => inputKind === kind)
       && countRequiredInputs(node, kind) >= 1
+      && countRequiredInputs(node, kind) === node.ports.filter((port) => port.direction === "input" && port.required).length
       && node.capabilities.ioProfile.outputKinds.includes("text")
       && producesTextOutput(node)
       && !hasBlockingPlanningDependencies(node)
