@@ -82,6 +82,19 @@ function producesTextOutput(node: NodeSpec): boolean {
   );
 }
 
+function isExactUnaryInputPort(node: NodeSpec, kind: ValueKind): boolean {
+  const inputPorts = node.ports.filter((port) => port.direction === "input");
+  if (inputPorts.length !== 1) return false;
+
+  const [inputPort] = inputPorts;
+  if (!inputPort?.required) return false;
+
+  const acceptedKinds = inputPort.accepts || [inputPort.kind];
+  return acceptedKinds.length === 1
+    && acceptedKinds[0] === kind
+    && inputPort.kind === kind;
+}
+
 function scoreModelHints(node: NodeSpec, hints: string[]): number {
   if (hints.length === 0) return 0;
   const text = modelText(node);
@@ -356,17 +369,15 @@ function isPromptEnhancerNode(node: NodeSpec): boolean {
   const requiredInputKinds = node.capabilities.ioProfile.requiredInputKinds;
   const acceptedInputKinds = node.capabilities.ioProfile.acceptedInputKinds || requiredInputKinds;
   const optionalInputKinds = node.capabilities.ioProfile.optionalInputKinds || [];
-  const inputPorts = node.ports.filter((port) => port.direction === "input");
 
   return !hasBlockingPlanningDependencies(node)
     && node.capabilities.ioProfile.outputKinds.includes("text")
-    && requiredInputKinds.length > 0
-    && requiredInputKinds.every((kind) => kind === "text")
-    && acceptedInputKinds.every((kind) => kind === "text")
-    && optionalInputKinds.every((kind) => kind === "text")
-    && inputPorts.length > 0
-    && inputPorts.every((port) => ((port.accepts || [port.kind]).includes("text") || port.kind === "text"))
-    && inputPorts.some((port) => port.required && ((port.accepts || [port.kind]).includes("text") || port.kind === "text"))
+    && requiredInputKinds.length === 1
+    && requiredInputKinds[0] === "text"
+    && acceptedInputKinds.length === 1
+    && acceptedInputKinds[0] === "text"
+    && optionalInputKinds.length === 0
+    && isExactUnaryInputPort(node, "text")
     && producesTextOutput(node)
     && (
       node.capabilities.planningHints.includes("prefer_for_prompt_refinement")
@@ -657,10 +668,12 @@ export function selectPromptDescriberCandidates(
   return rankDefinitionIds(
     registry.nodeSpecs.filter((node) =>
       node.capabilities.planningHints.includes("prefer_for_asset_to_prompt")
-      && node.capabilities.ioProfile.requiredInputKinds.includes(kind)
-      && node.capabilities.ioProfile.requiredInputKinds.every((inputKind) => inputKind === kind)
-      && countRequiredInputs(node, kind) >= 1
-      && countRequiredInputs(node, kind) === node.ports.filter((port) => port.direction === "input" && port.required).length
+      && node.capabilities.ioProfile.requiredInputKinds.length === 1
+      && node.capabilities.ioProfile.requiredInputKinds[0] === kind
+      && (node.capabilities.ioProfile.acceptedInputKinds || [kind]).length === 1
+      && (node.capabilities.ioProfile.acceptedInputKinds || [kind])[0] === kind
+      && (node.capabilities.ioProfile.optionalInputKinds || []).length === 0
+      && isExactUnaryInputPort(node, kind)
       && node.capabilities.ioProfile.outputKinds.includes("text")
       && producesTextOutput(node)
       && !hasBlockingPlanningDependencies(node)
