@@ -65,6 +65,23 @@ function hasTextInput(node: NodeSpec): boolean {
   );
 }
 
+function hasAvoidPlanningHints(node: NodeSpec): boolean {
+  return node.capabilities.planningHints.some((hint) => hint.startsWith("avoid_"));
+}
+
+function hasBlockingPlanningDependencies(node: NodeSpec): boolean {
+  return hasAvoidPlanningHints(node)
+    || node.capabilities.hiddenDependencies.length > 0
+    || node.capabilities.dependencyComplexity === "heavy";
+}
+
+function producesTextOutput(node: NodeSpec): boolean {
+  return node.ports.some((port) =>
+    port.direction === "output"
+    && ((port.produces || [port.kind]).includes("text") || port.kind === "text"),
+  );
+}
+
 function scoreModelHints(node: NodeSpec, hints: string[]): number {
   if (hints.length === 0) return 0;
   const text = modelText(node);
@@ -303,10 +320,19 @@ function scoreVoiceoverVideoNode(node: NodeSpec): number {
 }
 
 function isPromptInputNode(node: NodeSpec): boolean {
-  return node.capabilities.ioProfile.outputKinds.includes("text")
+  const acceptedInputKinds = node.capabilities.ioProfile.acceptedInputKinds || [];
+  const optionalInputKinds = node.capabilities.ioProfile.optionalInputKinds || [];
+  return !hasBlockingPlanningDependencies(node)
+    && node.capabilities.ioProfile.outputKinds.includes("text")
     && node.capabilities.ioProfile.requiredInputKinds.length === 0
+    && acceptedInputKinds.length === 0
+    && optionalInputKinds.length === 0
+    && node.ports.every((port) => port.direction !== "input")
+    && producesTextOutput(node)
     && (
-      node.capabilities.planningHints.includes("prefer_for_prompt_source")
+      node.capabilities.planningHints.includes("prefer_for_prompt_scaffold")
+      || node.capabilities.planningHints.includes("prefer_for_prompt_source")
+      || node.capabilities.taskTags.includes("prompt-variable-target")
       || node.capabilities.taskTags.includes("prompt-source")
       || node.capabilities.taskTags.includes("prompt-input")
       || node.nodeType === "promptV3"
@@ -315,12 +341,51 @@ function isPromptInputNode(node: NodeSpec): boolean {
 
 function scorePromptInputNode(node: NodeSpec): number {
   let score = 0;
+  if (node.capabilities.planningHints.includes("prefer_for_prompt_scaffold")) score += 10;
   if (node.capabilities.planningHints.includes("prefer_for_prompt_source")) score += 8;
+  if (node.capabilities.taskTags.includes("prompt-variable-target")) score += 6;
   if (node.capabilities.taskTags.includes("prompt-source")) score += 6;
   if (node.capabilities.taskTags.includes("prompt-input")) score += 4;
   if (node.capabilities.ioProfile.summary === "none -> text") score += 4;
   if (node.capabilities.dependencyComplexity === "simple") score += 2;
   if (node.nodeType === "promptV3") score += 4;
+  return score;
+}
+
+function isPromptEnhancerNode(node: NodeSpec): boolean {
+  const requiredInputKinds = node.capabilities.ioProfile.requiredInputKinds;
+  const acceptedInputKinds = node.capabilities.ioProfile.acceptedInputKinds || requiredInputKinds;
+  const optionalInputKinds = node.capabilities.ioProfile.optionalInputKinds || [];
+  const inputPorts = node.ports.filter((port) => port.direction === "input");
+
+  return !hasBlockingPlanningDependencies(node)
+    && node.capabilities.ioProfile.outputKinds.includes("text")
+    && requiredInputKinds.length > 0
+    && requiredInputKinds.every((kind) => kind === "text")
+    && acceptedInputKinds.every((kind) => kind === "text")
+    && optionalInputKinds.every((kind) => kind === "text")
+    && inputPorts.length > 0
+    && inputPorts.every((port) => ((port.accepts || [port.kind]).includes("text") || port.kind === "text"))
+    && inputPorts.some((port) => port.required && ((port.accepts || [port.kind]).includes("text") || port.kind === "text"))
+    && producesTextOutput(node)
+    && (
+      node.capabilities.planningHints.includes("prefer_for_prompt_refinement")
+      || node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")
+      || node.capabilities.taskTags.includes("prompt-enhancement")
+      || node.capabilities.taskTags.includes("prompt-enhance")
+      || node.nodeType === "prompt_enhance"
+    );
+}
+
+function scorePromptEnhancerNode(node: NodeSpec): number {
+  let score = 0;
+  if (node.capabilities.planningHints.includes("prefer_for_prompt_refinement")) score += 10;
+  if (node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")) score += 8;
+  if (node.capabilities.taskTags.includes("prompt-enhancement")) score += 6;
+  if (node.capabilities.taskTags.includes("prompt-enhance")) score += 6;
+  if (node.capabilities.ioProfile.summary === "text -> text") score += 4;
+  if (node.capabilities.dependencyComplexity === "simple") score += 2;
+  if (node.nodeType === "prompt_enhance") score += 2;
   return score;
 }
 
@@ -571,24 +636,8 @@ export function selectPromptNodeCandidates(
   registry: NormalizedRegistrySnapshot,
 ): string[] {
   return rankDefinitionIds(
-    registry.nodeSpecs.filter((node) =>
-      node.capabilities.planningHints.includes("prefer_for_prompt_scaffold")
-      || node.capabilities.planningHints.includes("prefer_for_prompt_source")
-      || node.capabilities.taskTags.includes("prompt-variable-target")
-      || node.capabilities.taskTags.includes("prompt-source")
-      || node.nodeType === "promptV3"
-    ),
-    (node) => {
-      let score = 0;
-      if (node.capabilities.planningHints.includes("prefer_for_prompt_scaffold")) score += 10;
-      if (node.capabilities.planningHints.includes("prefer_for_prompt_source")) score += 8;
-      if (node.capabilities.taskTags.includes("prompt-variable-target")) score += 6;
-      if (node.capabilities.taskTags.includes("prompt-source")) score += 4;
-      if (node.capabilities.ioProfile.summary === "none -> text") score += 4;
-      if (node.capabilities.dependencyComplexity === "simple") score += 2;
-      if (node.nodeType === "promptV3") score += 2;
-      return score;
-    },
+    registry.nodeSpecs.filter(isPromptInputNode),
+    scorePromptInputNode,
   ).slice(0, 1);
 }
 
@@ -596,23 +645,8 @@ export function selectPromptEnhancerCandidates(
   registry: NormalizedRegistrySnapshot,
 ): string[] {
   return rankDefinitionIds(
-    registry.nodeSpecs.filter((node) =>
-      node.capabilities.planningHints.includes("prefer_for_prompt_refinement")
-      || node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")
-      || node.capabilities.taskTags.includes("prompt-enhancement")
-      || node.capabilities.taskTags.includes("prompt-enhance")
-      || node.nodeType === "prompt_enhance"
-    ),
-    (node) => {
-      let score = 0;
-      if (node.capabilities.planningHints.includes("prefer_for_prompt_refinement")) score += 10;
-      if (node.capabilities.planningHints.includes("prefer_for_prompt_enhancement")) score += 8;
-      if (node.capabilities.taskTags.includes("prompt-enhancement")) score += 6;
-      if (node.capabilities.taskTags.includes("prompt-enhance")) score += 6;
-      if (node.capabilities.ioProfile.summary === "text -> text") score += 4;
-      if (node.capabilities.dependencyComplexity === "simple") score += 2;
-      return score;
-    },
+    registry.nodeSpecs.filter(isPromptEnhancerNode),
+    scorePromptEnhancerNode,
   ).slice(0, 1);
 }
 
@@ -624,9 +658,7 @@ export function selectPromptDescriberCandidates(
     registry.nodeSpecs.filter((node) =>
       node.capabilities.planningHints.includes("prefer_for_asset_to_prompt")
       && node.capabilities.ioProfile.requiredInputKinds.includes(kind)
-      && !node.capabilities.planningHints.some((hint) => hint.startsWith("avoid_"))
-      && node.capabilities.hiddenDependencies.length === 0
-      && node.capabilities.dependencyComplexity !== "heavy"
+      && !hasBlockingPlanningDependencies(node)
     ),
     (node) => {
       let score = 0;
